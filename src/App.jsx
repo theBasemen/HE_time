@@ -593,11 +593,11 @@ export default function TimeTracker() {
   }
 
   return (
-    <div className="font-sans text-slate-900 bg-slate-200 h-screen w-full flex items-center justify-center">
-      {/* Mobile Frame Simulation - Den wrapper appen så den altid ser godt ud på desktop også */}
-      <div className="w-full max-w-md h-full max-h-[850px] bg-[#F2F2F7] sm:rounded-[2.5rem] shadow-2xl overflow-hidden relative flex flex-col border-[8px] border-slate-900">
+    <div className="font-sans text-slate-900 bg-slate-200 sm:bg-slate-200 h-screen w-full flex sm:items-center sm:justify-center">
+      {/* Mobile Frame Simulation - Only visible on desktop (sm breakpoint and above) */}
+      <div className="w-full h-full bg-[#F2F2F7] sm:max-w-md sm:max-h-[850px] sm:rounded-[2.5rem] sm:shadow-2xl sm:overflow-hidden relative flex flex-col sm:border-[8px] sm:border-slate-900">
         
-        {/* Notch Area fake */}
+        {/* Notch Area fake - Only on desktop */}
         <div className="absolute top-0 left-1/2 -translate-x-1/2 w-32 h-6 bg-slate-900 rounded-b-xl z-50 sm:block hidden"></div>
         
         <div className="flex-1 overflow-hidden relative">
@@ -609,8 +609,8 @@ export default function TimeTracker() {
             {view === 'history' && renderHistory()}
         </div>
         
-        {/* Home Indicator */}
-        <div className="absolute bottom-1 left-1/2 -translate-x-1/2 w-1/3 h-1.5 bg-slate-900/20 rounded-full"></div>
+        {/* Home Indicator - Only on desktop */}
+        <div className="absolute bottom-1 left-1/2 -translate-x-1/2 w-1/3 h-1.5 bg-slate-900/20 rounded-full sm:block hidden"></div>
       </div>
     </div>
   );
