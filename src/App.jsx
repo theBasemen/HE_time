@@ -1,14 +1,13 @@
 import React, { useState, useEffect } from 'react';
-import { Plus, Save, Trash2, FolderPlus, X, ChevronRight, Edit2, Eye, EyeOff, LogOut, User, History } from 'lucide-react';
+import { Plus, Save, Trash2, FolderPlus, X, ChevronRight, Edit2, Eye, EyeOff, LogOut, User, History, Calendar, ChevronDown, ChevronUp } from 'lucide-react';
 import { supabase } from './lib/supabase';
 
 // --- KONSTANTER ---
 // Standard medarbejdere til login-skærmen (dette er stadig hardcoded for nemheds skyld)
 const EMPLOYEES = [
-  { id: 'u1', name: 'Morten', initials: 'MO', color: 'bg-blue-100 text-blue-700' },
-  { id: 'u2', name: 'Sarah', initials: 'SA', color: 'bg-pink-100 text-pink-700' },
-  { id: 'u3', name: 'Jens', initials: 'JE', color: 'bg-yellow-100 text-yellow-700' },
-  { id: 'u4', name: 'Lise', initials: 'LI', color: 'bg-green-100 text-green-700' },
+  { id: 'u1', name: 'Louise', initials: 'LO', color: 'bg-blue-100 text-blue-700' },
+  { id: 'u2', name: 'Sebastian', initials: 'SE', color: 'bg-pink-100 text-pink-700' },
+  { id: 'u3', name: 'Mads', initials: 'MA', color: 'bg-yellow-100 text-yellow-700' },
 ];
 
 export default function TimeTracker() {
@@ -28,6 +27,8 @@ export default function TimeTracker() {
   const [isEditingProjects, setIsEditingProjects] = useState(false);
   const [editingLog, setEditingLog] = useState(null);
   const [isLoadingData, setIsLoadingData] = useState(false);
+  const [selectedDateFilter, setSelectedDateFilter] = useState(null); // null = all dates
+  const [expandedDates, setExpandedDates] = useState(new Set()); // Track which date groups are expanded
 
   // --- INITIALIZATION ---
   useEffect(() => {
@@ -42,6 +43,20 @@ export default function TimeTracker() {
         setView('login');
     }
   }, []);
+
+  // Auto-expand today and yesterday in history view when logs are loaded
+  useEffect(() => {
+    if (logs.length > 0 && currentUser) {
+      const today = new Date().toDateString();
+      const yesterday = new Date(Date.now() - 86400000).toDateString();
+      setExpandedDates(prev => {
+        const newSet = new Set(prev);
+        newSet.add(today);
+        newSet.add(yesterday);
+        return newSet;
+      });
+    }
+  }, [logs.length, currentUser]);
 
   // Hent data fra Supabase
   const fetchData = async () => {
@@ -481,8 +496,56 @@ export default function TimeTracker() {
   // 4. HISTORY & EDITING
   const renderHistory = () => {
     // Vis kun mine egne logs i historikken
-    const userLogs = logs.filter(l => l.user_data?.id === currentUser?.id);
+    const userLogs = logs.filter(l => l.user_data?.id === currentUser?.id && l.hours !== null);
     
+    // Group logs by date
+    const groupLogsByDate = (logs) => {
+      const grouped = {};
+      logs.forEach(log => {
+        const date = new Date(log.timestamp);
+        const dateKey = date.toDateString();
+        if (!grouped[dateKey]) {
+          grouped[dateKey] = [];
+        }
+        grouped[dateKey].push(log);
+      });
+      return grouped;
+    };
+
+    // Filter logs by selected date
+    const filteredLogs = selectedDateFilter 
+      ? userLogs.filter(log => {
+          const logDate = new Date(log.timestamp).toDateString();
+          const filterDate = new Date(selectedDateFilter).toDateString();
+          return logDate === filterDate;
+        })
+      : userLogs;
+
+    const groupedLogs = groupLogsByDate(filteredLogs);
+    const sortedDates = Object.keys(groupedLogs).sort((a, b) => new Date(b) - new Date(a));
+
+    // Helper to format date nicely
+    const formatDateHeader = (dateString) => {
+      const date = new Date(dateString);
+      const today = new Date().toDateString();
+      const yesterday = new Date(Date.now() - 86400000).toDateString();
+      
+      if (dateString === today) return 'I dag';
+      if (dateString === yesterday) return 'I går';
+      return date.toLocaleDateString('da-DK', { weekday: 'long', day: 'numeric', month: 'long' });
+    };
+
+    // Toggle date group expansion
+    const toggleDateGroup = (dateString) => {
+      const newExpanded = new Set(expandedDates);
+      if (newExpanded.has(dateString)) {
+        newExpanded.delete(dateString);
+      } else {
+        newExpanded.add(dateString);
+      }
+      setExpandedDates(newExpanded);
+    };
+
     return (
         <div className="flex flex-col h-full bg-[#F2F2F7]">
             <Header 
@@ -496,37 +559,118 @@ export default function TimeTracker() {
             />
     
             <div className="flex-1 overflow-y-auto pt-[80px] px-4 pb-10">
+                {/* Date Filter Buttons */}
+                {userLogs.length > 0 && (
+                  <div className="mb-4 flex gap-2 overflow-x-auto pb-2">
+                    <button
+                      onClick={() => setSelectedDateFilter(null)}
+                      className={`px-4 py-2 rounded-lg text-sm font-medium whitespace-nowrap transition-colors ${
+                        selectedDateFilter === null 
+                          ? 'bg-blue-500 text-white' 
+                          : 'bg-white text-slate-600'
+                      }`}
+                    >
+                      Alle
+                    </button>
+                    <button
+                      onClick={() => setSelectedDateFilter(new Date().toISOString())}
+                      className={`px-4 py-2 rounded-lg text-sm font-medium whitespace-nowrap transition-colors ${
+                        selectedDateFilter && new Date(selectedDateFilter).toDateString() === new Date().toDateString()
+                          ? 'bg-blue-500 text-white' 
+                          : 'bg-white text-slate-600'
+                      }`}
+                    >
+                      I dag
+                    </button>
+                    <button
+                      onClick={() => {
+                        const yesterday = new Date();
+                        yesterday.setDate(yesterday.getDate() - 1);
+                        setSelectedDateFilter(yesterday.toISOString());
+                      }}
+                      className={`px-4 py-2 rounded-lg text-sm font-medium whitespace-nowrap transition-colors ${
+                        selectedDateFilter && new Date(selectedDateFilter).toDateString() === new Date(Date.now() - 86400000).toDateString()
+                          ? 'bg-blue-500 text-white' 
+                          : 'bg-white text-slate-600'
+                      }`}
+                    >
+                      I går
+                    </button>
+                  </div>
+                )}
+
                 {userLogs.length === 0 ? (
                     <div className="flex flex-col items-center justify-center h-64 text-slate-400">
                         <History size={48} className="mb-4 opacity-20" />
                         <p>Ingen registreringer fundet</p>
                     </div>
+                ) : sortedDates.length === 0 ? (
+                    <div className="flex flex-col items-center justify-center h-64 text-slate-400">
+                        <Calendar size={48} className="mb-4 opacity-20" />
+                        <p>Ingen registreringer for valgte dato</p>
+                    </div>
                 ) : (
-                    <div className="bg-white rounded-xl shadow-sm overflow-hidden divide-y divide-slate-100">
-                        {userLogs.map(log => (
-                            <button 
-                                key={log.id} 
-                                onClick={() => setEditingLog(log)}
-                                className="w-full p-4 flex justify-between items-center text-left hover:bg-slate-50 active:bg-slate-100 transition-colors"
-                            >
-                                <div>
-                                    <p className="font-semibold text-slate-900">{log.project_name}</p>
-                                    <p className="text-xs text-slate-500">
-                                        {new Date(log.timestamp).toLocaleDateString()} &bull; {new Date(log.timestamp).toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'})}
-                                    </p>
+                    <div className="space-y-3">
+                        {sortedDates.map(dateString => {
+                            const dateLogs = groupedLogs[dateString];
+                            const isExpanded = expandedDates.has(dateString);
+                            const dateTotal = dateLogs.reduce((sum, log) => sum + log.hours, 0);
+                            
+                            return (
+                                <div key={dateString} className="bg-white rounded-xl shadow-sm overflow-hidden">
+                                    {/* Date Header - Clickable to expand/collapse */}
+                                    <button
+                                        onClick={() => toggleDateGroup(dateString)}
+                                        className="w-full p-4 flex items-center justify-between hover:bg-slate-50 transition-colors"
+                                    >
+                                        <div className="flex items-center gap-3">
+                                            <Calendar size={18} className="text-slate-400" />
+                                            <div className="text-left">
+                                                <p className="font-semibold text-slate-900">{formatDateHeader(dateString)}</p>
+                                                <p className="text-xs text-slate-500">{dateLogs.length} registrering{dateLogs.length !== 1 ? 'er' : ''}</p>
+                                            </div>
+                                        </div>
+                                        <div className="flex items-center gap-3">
+                                            <span className="text-slate-900 font-medium">{dateTotal}t</span>
+                                            {isExpanded ? <ChevronUp size={20} className="text-slate-400" /> : <ChevronDown size={20} className="text-slate-400" />}
+                                        </div>
+                                    </button>
+                                    
+                                    {/* Logs for this date */}
+                                    {isExpanded && (
+                                        <div className="divide-y divide-slate-100">
+                                            {dateLogs
+                                                .sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp))
+                                                .map(log => (
+                                                    <button 
+                                                        key={log.id} 
+                                                        onClick={() => setEditingLog(log)}
+                                                        className="w-full p-4 pl-12 flex justify-between items-center text-left hover:bg-slate-50 active:bg-slate-100 transition-colors"
+                                                    >
+                                                        <div className="flex items-center gap-3 flex-1">
+                                                            <div className={`w-2 h-2 rounded-full ${log.project_color?.replace('text-white', '') || 'bg-gray-400'}`}></div>
+                                                            <div>
+                                                                <p className="font-semibold text-slate-900">{log.project_name}</p>
+                                                                <p className="text-xs text-slate-500">
+                                                                    {new Date(log.timestamp).toLocaleTimeString('da-DK', {hour:'2-digit', minute:'2-digit'})}
+                                                                </p>
+                                                            </div>
+                                                        </div>
+                                                        <span className="text-slate-900 font-medium bg-slate-100 px-2 py-1 rounded-md min-w-[3rem] text-center">{log.hours}t</span>
+                                                    </button>
+                                                ))}
+                                        </div>
+                                    )}
                                 </div>
-                                <div className="flex items-center gap-3">
-                                    <span className="text-slate-900 font-medium bg-slate-100 px-2 py-1 rounded-md min-w-[3rem] text-center">{log.hours}t</span>
-                                </div>
-                            </button>
-                        ))}
+                            );
+                        })}
                     </div>
                 )}
                 
                 {userLogs.length > 0 && (
                     <div className="mt-6 text-center">
                         <p className="text-slate-400 text-xs uppercase tracking-wide mb-1">Mine Timer Total</p>
-                        <p className="text-3xl font-bold text-slate-900">{userLogs.reduce((acc, curr) => acc + curr.hours, 0)}</p>
+                        <p className="text-3xl font-bold text-slate-900">{userLogs.reduce((acc, curr) => acc + curr.hours, 0)}t</p>
                     </div>
                 )}
             </div>
