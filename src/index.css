@@ -11,3 +11,70 @@ body {
   -moz-osx-font-smoothing: grayscale;
   background-color: #e2e8f0;
 }
+
+/* Hide scrollbar but keep functionality */
+.scrollbar-hide {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+
+.scrollbar-hide::-webkit-scrollbar {
+  display: none;
+}
+
+/* Modal Animations */
+@keyframes slideUp {
+  from {
+    transform: translateY(100%);
+    opacity: 0;
+  }
+  to {
+    transform: translateY(0);
+    opacity: 1;
+  }
+}
+
+@keyframes slideDown {
+  from {
+    transform: translateY(0);
+    opacity: 1;
+  }
+  to {
+    transform: translateY(100%);
+    opacity: 0;
+  }
+}
+
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes fadeOut {
+  from {
+    opacity: 1;
+  }
+  to {
+    opacity: 0;
+  }
+}
+
+.slide-up-200 {
+  animation: slideUp 200ms ease-out;
+}
+
+.slide-down-200 {
+  animation: slideDown 200ms ease-in;
+}
+
+.fade-in-200 {
+  animation: fadeIn 200ms ease-out;
+}
+
+.fade-out-200 {
+  animation: fadeOut 200ms ease-in;
+}

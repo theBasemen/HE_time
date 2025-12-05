@@ -1,45 +1,71 @@
-import React, { useState, useEffect } from 'react';
-import { Plus, Save, Trash2, FolderPlus, X, ChevronRight, Edit2, Eye, EyeOff, LogOut, User, History, Calendar, ChevronDown, ChevronUp } from 'lucide-react';
+import React, { useState, useEffect, useRef } from 'react';
+import { Plus, Trash2, X, ChevronRight, ChevronLeft, History, Calendar, Clock, CheckCircle2, RefreshCw } from 'lucide-react';
 import { supabase } from './lib/supabase';
 
 export default function TimeTracker() {
   // --- STATE ---
   const [currentUser, setCurrentUser] = useState(null); 
-  const [view, setView] = useState('loading'); // loading, login, home, log, create-project, history
+  const [view, setView] = useState('loading'); // loading, login, home
   
   const [users, setUsers] = useState([]);
   const [projects, setProjects] = useState([]);
   const [logs, setLogs] = useState([]);
   
   // Selection & Forms
-  const [selectedProject, setSelectedProject] = useState(null);
+  const [selectedProjectForTimer, setSelectedProjectForTimer] = useState(null);
   const [duration, setDuration] = useState(1.0);
-  const [newProjectName, setNewProjectName] = useState('');
   
   // UI States
-  const [isEditingProjects, setIsEditingProjects] = useState(false);
   const [editingLog, setEditingLog] = useState(null);
   const [isLoadingData, setIsLoadingData] = useState(false);
-  const [selectedDateFilter, setSelectedDateFilter] = useState(null); // null = all dates
-  const [expandedDates, setExpandedDates] = useState(new Set()); // Track which date groups are expanded
+  const [isSavingTime, setIsSavingTime] = useState(false);
+  const [justSavedLogId, setJustSavedLogId] = useState(null);
+  
+  // Bottom Sheet States
+  const [isBottomSheetOpen, setIsBottomSheetOpen] = useState(false);
+  const [isBottomSheetClosing, setIsBottomSheetClosing] = useState(false);
+  const [bottomSheetStep, setBottomSheetStep] = useState('project'); // 'project' or 'time'
+  
+  // Edit Modal States
+  const [isEditModalClosing, setIsEditModalClosing] = useState(false);
+  
+  // Calendar Navigation State
+  const [selectedDate, setSelectedDate] = useState(new Date());
+  
+  // Helper function to close bottom sheet with animation
+  const closeBottomSheet = () => {
+    setIsBottomSheetClosing(true);
+    setTimeout(() => {
+      setIsBottomSheetOpen(false);
+      setIsBottomSheetClosing(false);
+      setBottomSheetStep('project');
+      setSelectedProjectForTimer(null);
+      setDuration(1.0);
+    }, 200);
+  };
+  
+  // Helper function to close edit modal with animation
+  const closeEditModal = () => {
+    setIsEditModalClosing(true);
+    setTimeout(() => {
+      setEditingLog(null);
+      setIsEditModalClosing(false);
+    }, 200);
+  };
 
   // --- INITIALIZATION ---
   useEffect(() => {
-    // 1. Hent brugere fra database
     fetchUsers();
     
-    // 2. Tjek om brugeren er logget ind (gemt på telefonen)
     const savedUserId = localStorage.getItem('he_user_id');
     
     if (savedUserId) {
-        // Hent brugerdata fra database baseret på gemt ID
         fetchUserById(savedUserId).then(user => {
             if (user) {
                 setCurrentUser(user);
                 setView('home');
-                fetchData(); // Hent data fra Supabase
+                fetchData();
             } else {
-                // Bruger findes ikke længere, vis login
                 localStorage.removeItem('he_user_id');
                 setView('login');
             }
@@ -49,21 +75,11 @@ export default function TimeTracker() {
     }
   }, []);
 
-  // Auto-expand today and yesterday in history view when logs are loaded
-  useEffect(() => {
-    if (logs.length > 0 && currentUser) {
-      const today = new Date().toDateString();
-      const yesterday = new Date(Date.now() - 86400000).toDateString();
-      setExpandedDates(prev => {
-        const newSet = new Set(prev);
-        newSet.add(today);
-        newSet.add(yesterday);
-        return newSet;
-      });
-    }
-  }, [logs.length, currentUser]);
+  // Auto-expand today and yesterday in history view
 
-  // Hent brugere fra Supabase
+
+  // --- DATA FETCHING ---
+  
   const fetchUsers = async () => {
     const { data: usersData, error: usersError } = await supabase
       .from('he_time_users')
@@ -72,7 +88,6 @@ export default function TimeTracker() {
       .order('name');
     
     if (usersData) {
-      // Konverter database color til Tailwind classes hvis nødvendigt
       const formattedUsers = usersData.map(user => ({
         ...user,
         colorClass: user.color || 'bg-gray-100 text-gray-700'
@@ -82,7 +97,6 @@ export default function TimeTracker() {
     if (usersError) console.error('Fejl ved hentning af brugere:', usersError);
   };
 
-  // Hent specifik bruger efter ID
   const fetchUserById = async (userId) => {
     const { data, error } = await supabase
       .from('he_time_users')
@@ -105,11 +119,9 @@ export default function TimeTracker() {
     return null;
   };
 
-  // Hent data fra Supabase
   const fetchData = async () => {
     setIsLoadingData(true);
     
-    // Hent projekter
     const { data: projectsData, error: projError } = await supabase
       .from('he_time_projects')
       .select('*')
@@ -118,7 +130,6 @@ export default function TimeTracker() {
     if (projectsData) setProjects(projectsData);
     if (projError) console.error('Fejl ved hentning af projekter:', projError);
 
-    // Hent logs (henter de seneste 100 for nu)
     const { data: logsData, error: logsError } = await supabase
       .from('he_time_logs')
       .select('*')
@@ -134,7 +145,6 @@ export default function TimeTracker() {
   // --- ACTIONS ---
 
   const handleLogin = async (user) => {
-      // Gem kun user_id i localStorage
       localStorage.setItem('he_user_id', user.id);
       setCurrentUser(user);
       setView('home');
@@ -151,71 +161,45 @@ export default function TimeTracker() {
       }
   };
 
-  const handleCreateProject = async () => {
-    if (!newProjectName.trim()) return;
-    
-    const newProject = {
-      id: crypto.randomUUID(), // Generer et unikt UUID som text ID
-      name: newProjectName.trim(),
-      color: '#6366f1', // Default indigo color (hex format)
-      type: null, // Kan udvides senere
-      is_hidden: false,
-      due_date: null // Kan udvides senere
-    };
-
-    // Optimistisk UI opdatering
-    const tempId = newProject.id;
-    setProjects(prev => [...prev, newProject]);
-    setNewProjectName('');
-    setSelectedProject(newProject);
-    setView('log');
-
-    // Gem i Supabase
-    const { data, error } = await supabase
-      .from('he_time_projects')
-      .insert([newProject])
-      .select()
-      .single();
-
-    if (error) {
-        // Rul tilbage optimistisk opdatering
-        setProjects(prev => prev.filter(p => p.id !== tempId));
-        alert('Kunne ikke oprette projekt: ' + error.message);
-    } else if (data) {
-        // Erstat med rigtig data fra database
-        setProjects(prev => prev.map(p => p.id === tempId ? data : p));
-        setSelectedProject(data);
-    }
-  };
-
   const handleLogTime = async () => {
     if (!currentUser || !currentUser.id) {
       alert('Fejl: Ingen bruger valgt');
       return;
     }
 
+    if (!selectedProjectForTimer) {
+      alert('Vælg venligst et projekt');
+      return;
+    }
+
+    setIsSavingTime(true);
+
+    // Use selectedDate for the date part, but keep current time
+    const timestamp = new Date(selectedDate);
+    const now = new Date();
+    timestamp.setHours(now.getHours());
+    timestamp.setMinutes(now.getMinutes());
+    timestamp.setSeconds(now.getSeconds());
+    timestamp.setMilliseconds(now.getMilliseconds());
+
     const newLog = {
-      project_id: selectedProject.id,
-      project_name: selectedProject.name,
-      project_color: selectedProject.color,
+      project_id: selectedProjectForTimer.id,
+      project_name: selectedProjectForTimer.name,
+      project_color: selectedProjectForTimer.color,
       hours: duration,
-      timestamp: new Date().toISOString(),
-      user_id: currentUser.id, // Brug foreign key til he_time_users
-      user_data: currentUser // Gem også hele brugerobjektet som JSONB for bagudkompatibilitet
+      timestamp: timestamp.toISOString(),
+      user_id: currentUser.id,
+      user_data: currentUser
     };
     
-    // Optimistisk UI opdatering
     const tempId = 'temp-' + Date.now();
     const optimisticLog = {
       id: tempId,
       ...newLog,
     };
     setLogs(prev => [optimisticLog, ...prev]);
-    setDuration(1.0);
-    setSelectedProject(null);
-    setView('home');
+    setJustSavedLogId(tempId);
 
-    // Gem i Supabase
     const { data, error } = await supabase
       .from('he_time_logs')
       .insert([newLog])
@@ -224,21 +208,24 @@ export default function TimeTracker() {
 
     if (error) {
         console.error('Kunne ikke gemme tid:', error);
-        // Rul tilbage optimistisk opdatering
         setLogs(prev => prev.filter(log => log.id !== tempId));
+        setJustSavedLogId(null);
         alert('Fejl ved gemning af tid. Tjek din internetforbindelse.');
     } else if (data) {
-        // Erstat optimistisk opdatering med rigtig data
         setLogs(prev => prev.map(log => log.id === tempId ? data : log));
+        setJustSavedLogId(data.id);
+        setTimeout(() => setJustSavedLogId(null), 3000);
     }
+
+    // Reset and close bottom sheet
+    setIsSavingTime(false);
+    closeBottomSheet();
   };
 
   const handleUpdateLog = async (id, newHours) => {
-    // Optimistisk opdatering
     setLogs(logs.map(l => l.id === id ? { ...l, hours: newHours } : l));
-    setEditingLog(null);
+    closeEditModal();
 
-    // Opdater i Supabase
     const { error } = await supabase
         .from('he_time_logs')
         .update({ hours: newHours })
@@ -248,11 +235,9 @@ export default function TimeTracker() {
   };
 
   const deleteLog = async (id) => {
-    // Optimistisk opdatering
     setLogs(logs.filter(l => l.id !== id));
-    setEditingLog(null);
+    closeEditModal();
 
-    // Slet i Supabase
     const { error } = await supabase
         .from('he_time_logs')
         .delete()
@@ -261,34 +246,29 @@ export default function TimeTracker() {
     if (error) console.error("Fejl ved sletning:", error);
   };
 
-  const toggleProjectVisibility = async (e, projectId, currentStatus) => {
-    e.stopPropagation();
-    
-    // Optimistisk opdatering
-    setProjects(projects.map(p => 
-      p.id === projectId ? { ...p, is_hidden: !currentStatus } : p
-    ));
-
-    // Opdater i Supabase
-    await supabase
-        .from('he_time_projects')
-        .update({ is_hidden: !currentStatus })
-        .eq('id', projectId);
-  };
-
   // --- HELPER FUNCTIONS ---
   
-  // Helper to render project color dot - handles both hex colors and Tailwind classes
+  // Convert decimal hours to hours:minutes format (e.g. 1.25 -> "1:15", 1.5 -> "1:30")
+  const formatHoursToTime = (hours) => {
+    const wholeHours = Math.floor(hours);
+    const minutes = Math.round((hours - wholeHours) * 60);
+    return `${wholeHours}:${minutes.toString().padStart(2, '0')}`;
+  };
+  
+  // Convert hours:minutes format to decimal hours (e.g. "1:15" -> 1.25, "1:30" -> 1.5)
+  const parseTimeToHours = (timeString) => {
+    const [hours, minutes] = timeString.split(':').map(Number);
+    return hours + (minutes / 60);
+  };
+  
   const renderProjectColorDot = (color, size = 'w-3 h-3') => {
     if (!color) return <div className={`${size} rounded-full bg-gray-400`}></div>;
     
-    // Check if it's a Tailwind class
     if (color.includes('bg-')) {
       const cleanColor = color.replace('text-white', '').trim();
       return <div className={`${size} rounded-full ${cleanColor}`}></div>;
     }
     
-    // Otherwise treat as hex/rgb color
     return (
       <div 
         className={`${size} rounded-full`}
@@ -297,34 +277,56 @@ export default function TimeTracker() {
     );
   };
 
-  // --- HELPER COMPONENTS ---
-  
-  const Header = ({ title, left, right }) => (
-    <div className="absolute top-0 left-0 right-0 h-[60px] sm:h-[70px] bg-white/80 backdrop-blur-xl border-b border-slate-200/50 flex items-end pb-3 px-4 justify-between z-20">
-      <div className="w-16 flex justify-start">{left}</div>
-      <h1 className="font-semibold text-slate-900 text-lg">{title}</h1>
-      <div className="w-16 flex justify-end">{right}</div>
-    </div>
-  );
+  // Get recently used projects (last 3-4 projects user logged time on)
+  const getRecentlyUsedProjects = () => {
+    if (!currentUser || logs.length === 0) return [];
+    
+    const userLogs = logs.filter(l => l.user_id === currentUser.id);
+    const projectCounts = {};
+    
+    userLogs.forEach(log => {
+      if (log.project_id) {
+        projectCounts[log.project_id] = (projectCounts[log.project_id] || 0) + 1;
+      }
+    });
+    
+    const sortedProjectIds = Object.keys(projectCounts)
+      .sort((a, b) => projectCounts[b] - projectCounts[a])
+      .slice(0, 4);
+    
+    return sortedProjectIds
+      .map(id => projects.find(p => p.id === id && !p.is_hidden))
+      .filter(Boolean);
+  };
+
+  // Format date for header
+  const formatDateHeader = () => {
+    const today = new Date();
+    return today.toLocaleDateString('da-DK', { weekday: 'long', day: 'numeric', month: 'long' });
+  };
 
   // --- VIEWS ---
 
   // 0. LOGIN SCREEN
   const renderLogin = () => {
-    // Konverter database color til Tailwind class hvis det ikke allerede er det
     const getColorClass = (color) => {
       if (!color) return 'bg-gray-100 text-gray-700';
-      // Hvis det allerede er en Tailwind class, brug den
       if (color.includes('bg-')) return color;
-      // Ellers konverter hex/rgb til Tailwind class eller brug som inline style
       return 'bg-gray-100 text-gray-700';
     };
 
     return (
       <div className="flex flex-col h-full bg-white p-6 justify-center animate-in fade-in duration-500">
           <div className="mb-10 text-center">
-              <h1 className="text-2xl font-bold text-slate-900 mb-2">Velkommen 👋</h1>
-              <p className="text-slate-500">Hvem skal bruge denne telefon?</p>
+              <div className="flex justify-center mb-6">
+                  <img 
+                    src="/he_logo.png" 
+                    alt="HE Logo" 
+                    className="h-16 w-auto"
+                  />
+              </div>
+              <h1 className="text-2xl font-bold text-slate-900 mb-2">Tidsregistrering</h1>
+              <p className="text-slate-500">Hvem skal der registreres timer for?</p>
           </div>
 
           {users.length === 0 ? (
@@ -372,523 +374,441 @@ export default function TimeTracker() {
 
   // 1. HOME SCREEN
   const renderHome = () => {
-    const visibleProjects = projects.filter(p => !p.is_hidden);
-    const hiddenProjects = projects.filter(p => p.is_hidden);
-
-    // Filtrer logs til kun at vise mine egne "i dag" for overskuelighed
-    const myLogsToday = logs.filter(l => {
+    // Filter logs for selected date's registrations for current user
+    const selectedDateString = selectedDate.toDateString();
+    const myLogsForDate = logs
+      .filter(l => {
         const isMe = l.user_id === currentUser?.id;
-        const isToday = new Date(l.timestamp).toDateString() === new Date().toDateString();
-        return isMe && isToday;
-    });
+        const logDate = new Date(l.timestamp).toDateString();
+        return isMe && logDate === selectedDateString && l.hours !== null;
+      })
+      .sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
+
+    const dateTotal = myLogsForDate.reduce((sum, log) => sum + (log.hours || 0), 0);
+    
+    // Helper functions for date navigation
+    const goToPreviousDay = () => {
+      const newDate = new Date(selectedDate);
+      newDate.setDate(newDate.getDate() - 1);
+      setSelectedDate(newDate);
+    };
+    
+    const goToNextDay = () => {
+      const newDate = new Date(selectedDate);
+      newDate.setDate(newDate.getDate() + 1);
+      setSelectedDate(newDate);
+    };
+    
+    const formatSelectedDate = () => {
+      const today = new Date().toDateString();
+      const yesterday = new Date(Date.now() - 86400000).toDateString();
+      const selectedDateString = selectedDate.toDateString();
+      
+      if (selectedDateString === today) return 'I dag';
+      if (selectedDateString === yesterday) return 'I går';
+      return selectedDate.toLocaleDateString('da-DK', { weekday: 'long', day: 'numeric', month: 'long' });
+    };
+
+    // Filter projects
+    const visibleProjects = projects.filter(p => !p.is_hidden);
+
+    const recentlyUsedProjects = getRecentlyUsedProjects();
+    const recentlyUsedIds = new Set(recentlyUsedProjects.map(p => p.id));
+    const otherProjects = visibleProjects.filter(p => !recentlyUsedIds.has(p.id));
 
     return (
-      <div className="flex flex-col h-full bg-[#F2F2F7]">
-        <Header 
-          title="Tidsregistrering" 
-          left={
-            <button onClick={handleLogout} className="text-slate-400 p-1 hover:text-slate-600">
-                {currentUser?.avatar_url ? (
-                  <img 
-                    src={currentUser.avatar_url} 
-                    alt={currentUser.name}
-                    className="w-8 h-8 rounded-full object-cover ring-2 ring-white"
-                  />
-                ) : (
-                  <div 
-                    className={`w-8 h-8 rounded-full ${currentUser?.colorClass || 'bg-gray-100 text-gray-700'} flex items-center justify-center text-xs font-bold ring-2 ring-white`}
-                    style={currentUser?.color && !currentUser.color.includes('bg-') ? { backgroundColor: currentUser.color } : {}}
-                  >
-                    {currentUser?.initials}
-                  </div>
-                )}
-            </button>
-          }
-          right={
+      <div className="flex flex-col h-full bg-[#F2F2F7] relative overflow-hidden">
+        {/* Header */}
+        <div className="bg-white border-b border-slate-200 px-4 pt-12 pb-4">
+          <div className="flex items-center justify-between mb-2 relative">
             <button 
-              onClick={() => setIsEditingProjects(!isEditingProjects)} 
-              className="text-blue-500 font-medium text-base active:opacity-50 transition-opacity"
+              onClick={handleLogout}
+              className="p-1 active:opacity-70 transition-opacity"
             >
-              {isEditingProjects ? 'Færdig' : 'Rediger'}
-            </button>
-          }
-        />
-
-        <div className="flex-1 overflow-y-auto pt-[80px] px-4 pb-20 space-y-6">
-          
-          {/* Main Action Grid */}
-          <div>
-            <div className="flex justify-between items-end mb-2 px-2">
-              <h2 className="text-slate-400 text-xs font-semibold uppercase tracking-wider">Aktive Projekter</h2>
-            </div>
-            
-            {isLoadingData && projects.length === 0 ? (
-                <div className="text-center py-10 text-slate-400">Henter projekter...</div>
-            ) : (
-                <div className="grid grid-cols-2 gap-3">
-                {visibleProjects.map(project => (
-                    <button
-                    key={project.id}
-                    onClick={() => {
-                        if (!isEditingProjects) {
-                            setSelectedProject(project);
-                            setView('log');
-                        }
-                    }}
-                    className={`
-                        relative group h-24 rounded-2xl p-4 flex flex-col justify-between text-left shadow-sm transition-all duration-200
-                        ${isEditingProjects ? 'bg-white' : 'bg-white active:scale-95'}
-                    `}
-                    >
-                        <div className="flex justify-between items-start w-full">
-                            {renderProjectColorDot(project.color)}
-                            {isEditingProjects && (
-                                <div 
-                                    onClick={(e) => toggleProjectVisibility(e, project.id, project.is_hidden)}
-                                    className="p-1 -mt-2 -mr-2 text-slate-400"
-                                >
-                                    <EyeOff size={18} />
-                                </div>
-                            )}
-                        </div>
-                        <span className="font-semibold text-slate-900 leading-tight">{project.name}</span>
-                    </button>
-                ))}
-
-                <button
-                    onClick={() => setView('create-project')}
-                    className="h-24 rounded-2xl bg-slate-100/50 border-2 border-dashed border-slate-300 flex flex-col items-center justify-center gap-2 text-slate-400 active:bg-slate-200 transition-colors"
+              {currentUser?.avatar_url ? (
+                <img 
+                  src={currentUser.avatar_url} 
+                  alt={currentUser.name}
+                  className="w-10 h-10 rounded-full object-cover ring-2 ring-slate-200"
+                />
+              ) : (
+                <div 
+                  className={`w-10 h-10 rounded-full ${currentUser?.colorClass || 'bg-gray-100 text-gray-700'} flex items-center justify-center text-sm font-bold ring-2 ring-slate-200`}
+                  style={currentUser?.color && !currentUser.color.includes('bg-') ? { backgroundColor: currentUser.color } : {}}
                 >
-                    <Plus size={24} />
-                    <span className="text-xs font-medium">Nyt Projekt</span>
-                </button>
+                  {currentUser?.initials}
                 </div>
-            )}
+              )}
+            </button>
+            <div className="absolute left-1/2 -translate-x-1/2">
+              <p className="text-xs text-slate-500 uppercase tracking-wider">{formatDateHeader()}</p>
+            </div>
+            <button
+              onClick={fetchData}
+              disabled={isLoadingData}
+              className="p-2 text-slate-400 hover:text-slate-600 active:opacity-70 transition-colors disabled:opacity-50"
+              title="Genindlæs data"
+            >
+              <RefreshCw size={20} className={isLoadingData ? 'animate-spin' : ''} />
+            </button>
           </div>
+        </div>
 
-          {/* Hidden Projects Section (Only in Edit Mode) */}
-          {isEditingProjects && hiddenProjects.length > 0 && (
-            <div className="animate-in fade-in slide-in-from-bottom-4 duration-300">
-               <div className="flex justify-between items-end mb-2 px-2">
-                <h2 className="text-slate-400 text-xs font-semibold uppercase tracking-wider">Skjulte Projekter</h2>
+        {/* Main Content - Selected Date's Logs */}
+        <div className="flex-1 overflow-y-auto px-4 py-6">
+          {/* Total Hours */}
+          {dateTotal > 0 && (
+            <div className="mb-6 bg-white rounded-2xl p-6 shadow-sm">
+              <div className="flex items-end justify-between mb-4">
+                <div>
+                  <p className="text-xs text-slate-500 uppercase tracking-wider mb-1">Total</p>
+                  <p className="text-4xl font-bold text-slate-900">{formatHoursToTime(dateTotal)}</p>
+                </div>
+                <div className="text-right">
+                  <p className="text-xs text-slate-500 uppercase tracking-wider mb-1">Arbejdsdag</p>
+                  <p className="text-2xl font-bold text-slate-900">
+                    {Math.round((dateTotal / 7.5) * 100)}%
+                  </p>
+                </div>
               </div>
-              <div className="bg-white rounded-xl overflow-hidden shadow-sm divide-y divide-slate-100">
-                {hiddenProjects.map(project => (
-                   <div key={project.id} className="p-4 flex items-center justify-between">
-                       <span className="text-slate-500">{project.name}</span>
-                       <button 
-                         onClick={(e) => toggleProjectVisibility(e, project.id, project.is_hidden)}
-                         className="flex items-center gap-2 text-blue-500 font-medium text-sm"
-                       >
-                           <Eye size={16} />
-                           Vis igen
-                       </button>
-                   </div>
-                ))}
+              {/* Progress Bar */}
+              <div className="w-full h-3 bg-slate-100 rounded-full overflow-hidden">
+                <div 
+                  className="h-full bg-blue-500 rounded-full transition-all duration-300 ease-out"
+                  style={{ width: `${Math.min((dateTotal / 7.5) * 100, 100)}%` }}
+                ></div>
               </div>
             </div>
           )}
 
-          {/* Today's Summary */}
-          <div className="pb-8">
-            <div className="flex justify-between items-end mb-2 px-2">
-               <h2 className="text-slate-400 text-xs font-semibold uppercase tracking-wider">I dag ({currentUser?.name})</h2>
-               <button onClick={() => setView('history')} className="text-blue-500 text-sm">Se alle</button>
+          {/* Logs List */}
+          {myLogsForDate.length === 0 ? (
+            <div className="bg-white rounded-2xl p-12 text-center">
+              <History size={48} className="mx-auto mb-4 text-slate-300" />
+              <p className="text-slate-400 font-medium mb-1">Ingen registreringer i dag</p>
+              <p className="text-sm text-slate-400">Tryk på knappen nedenfor for at registrere tid</p>
             </div>
-            
-            <div className="bg-white rounded-xl overflow-hidden shadow-sm divide-y divide-slate-100">
-              {myLogsToday.length === 0 ? (
-                 <div className="p-4 text-center text-slate-400 text-sm py-8">Ingen registreringer i dag</div>
-              ) : (
-                myLogsToday.map(log => (
-                  <div key={log.id} className="p-4 flex justify-between items-center active:bg-slate-50 transition-colors" onClick={() => setView('history')}>
-                     <div className="flex items-center gap-3">
-                         {renderProjectColorDot(log.project_color, 'w-2 h-2')}
-                         <span className="text-slate-900 font-medium">{log.project_name}</span>
-                     </div>
-                    <div className="flex items-center gap-2 text-slate-400">
-                        <span className="text-slate-900 font-medium">{log.hours}t</span>
-                        <ChevronRight size={16} />
+          ) : (
+            <div className="space-y-2">
+              {myLogsForDate.map(log => (
+                <div
+                  key={log.id}
+                  onClick={() => setEditingLog(log)}
+                  className={`
+                    bg-white rounded-xl p-4 shadow-sm transition-all cursor-pointer active:scale-[0.98]
+                    ${justSavedLogId === log.id ? 'ring-2 ring-blue-500 bg-blue-50' : ''}
+                    hover:bg-slate-50
+                  `}
+                >
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-3 flex-1">
+                      {renderProjectColorDot(log.project_color, 'w-4 h-4')}
+                      <div className="flex-1 min-w-0">
+                        <p className="font-semibold text-slate-900 truncate">{log.project_name}</p>
+                        <p className="text-xs text-slate-500">
+                          {new Date(log.timestamp).toLocaleTimeString('da-DK', {hour:'2-digit', minute:'2-digit'})}
+                        </p>
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-3">
+                      <span className="text-lg font-bold text-slate-900">{formatHoursToTime(log.hours)}</span>
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          deleteLog(log.id);
+                        }}
+                        className="p-2 text-slate-400 hover:text-red-500 active:opacity-70 transition-colors"
+                      >
+                        <Trash2 size={18} />
+                      </button>
                     </div>
                   </div>
-                ))
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+
+        {/* Edit Log Modal */}
+        {(editingLog || isEditModalClosing) && (
+          <div className="absolute inset-0 z-50 flex items-end justify-center">
+            <div 
+              className={`absolute inset-0 bg-black/40 backdrop-blur-sm ${isEditModalClosing ? 'fade-out-200' : 'fade-in-200'}`}
+              onClick={closeEditModal}
+            ></div>
+            
+            <div className={`relative bg-[#F2F2F7] w-full rounded-t-[2rem] p-6 pb-10 shadow-2xl ${isEditModalClosing ? 'slide-down-200' : 'slide-up-200'}`}>
+              <div className="flex justify-between items-start mb-6">
+                <div>
+                  <h3 className="text-lg font-bold text-slate-900">Rediger registrering</h3>
+                  <p className="text-slate-500 text-sm">{editingLog?.project_name}</p>
+                </div>
+                <button onClick={closeEditModal} className="bg-slate-200 p-1 rounded-full text-slate-500">
+                  <X size={20} />
+                </button>
+              </div>
+
+              <div className="bg-white rounded-xl p-4 mb-6 shadow-sm flex items-center justify-between">
+                <span className="text-slate-500 font-medium">Timer</span>
+                <div className="flex items-center gap-4">
+                  <button 
+                    onClick={() => setEditingLog({...editingLog, hours: Math.max(0.25, editingLog.hours - 0.25)})}
+                    className="w-10 h-10 rounded-full bg-slate-100 text-slate-600 flex items-center justify-center text-xl font-bold active:bg-slate-200"
+                  >
+                    -
+                  </button>
+                  <span className="text-xl font-bold text-center tabular-nums min-w-[4rem]">{formatHoursToTime(editingLog?.hours || 0)}</span>
+                  <button 
+                    onClick={() => setEditingLog({...editingLog, hours: editingLog.hours + 0.25})}
+                    className="w-10 h-10 rounded-full bg-slate-100 text-slate-600 flex items-center justify-center text-xl font-bold active:bg-slate-200"
+                  >
+                    +
+                  </button>
+                </div>
+              </div>
+
+              <div className="space-y-3">
+                <button 
+                  onClick={() => handleUpdateLog(editingLog.id, editingLog.hours)}
+                  className="w-full py-3.5 bg-blue-500 text-white font-bold rounded-xl shadow-md active:scale-[0.98] transition-transform"
+                >
+                  Gem ændringer
+                </button>
+                <button 
+                  onClick={() => {
+                    if(confirm("Er du sikker på du vil slette denne registrering?")) {
+                      deleteLog(editingLog.id);
+                    }
+                  }}
+                  className="w-full py-3.5 bg-white text-red-500 font-bold rounded-xl border border-slate-200 active:bg-red-50 transition-colors"
+                >
+                  Slet registrering
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Calendar Navigation */}
+        <div className="absolute bottom-24 left-6 right-6 z-30">
+          <div className="bg-white rounded-2xl p-4 shadow-lg flex items-center justify-between">
+            <button
+              onClick={goToPreviousDay}
+              className="p-2 text-slate-400 hover:text-slate-600 active:opacity-70 transition-colors"
+            >
+              <ChevronLeft size={24} />
+            </button>
+            <p className="text-sm font-semibold text-slate-900">{formatSelectedDate()}</p>
+            <button
+              onClick={goToNextDay}
+              className="p-2 text-slate-400 hover:text-slate-600 active:opacity-70 transition-colors"
+            >
+              <ChevronRight size={24} />
+            </button>
+          </div>
+        </div>
+
+        {/* FAB - Floating Action Button */}
+        <button
+          onClick={() => {
+            setIsBottomSheetOpen(true);
+            setBottomSheetStep('project');
+          }}
+          className="absolute bottom-6 left-6 right-6 bg-blue-600 text-white rounded-2xl py-4 px-8 shadow-lg shadow-blue-200 font-bold text-lg active:scale-[0.98] transition-transform flex items-center justify-center gap-2 z-30"
+        >
+          <Plus size={24} />
+          Registrer Tid
+        </button>
+
+        {/* Bottom Sheet */}
+        {(isBottomSheetOpen || isBottomSheetClosing) && (
+          <div className="absolute inset-0 z-40 flex items-end">
+            {/* Backdrop */}
+            <div 
+              className={`absolute inset-0 bg-black/40 backdrop-blur-sm ${isBottomSheetClosing ? 'fade-out-200' : 'fade-in-200'}`}
+              onClick={closeBottomSheet}
+            ></div>
+            
+            {/* Sheet */}
+            <div className={`relative bg-[#F2F2F7] w-full rounded-t-[2rem] shadow-2xl max-h-[90vh] flex flex-col ${isBottomSheetClosing ? 'slide-down-200' : 'slide-up-200'}`}>
+              {bottomSheetStep === 'project' ? (
+                // STEP 1: Select Project
+                <>
+                  <div className="p-6 pb-4">
+                    <div className="flex items-center justify-between mb-4">
+                      <h2 className="text-xl font-bold text-slate-900">Vælg Projekt</h2>
+                      <button
+                        onClick={closeBottomSheet}
+                        className="p-2 text-slate-400 hover:text-slate-600 active:opacity-70 transition-colors"
+                      >
+                        <X size={24} />
+                      </button>
+                    </div>
+                    
+                  </div>
+
+                  <div className="flex-1 overflow-y-auto px-6 pb-6">
+                    {/* Recently Used Projects */}
+                    {recentlyUsedProjects.length > 0 && (
+                      <div className="mb-6">
+                        <p className="text-xs text-slate-500 uppercase tracking-wider mb-3">Senest Brugte</p>
+                        <div className="flex gap-3 overflow-x-auto pb-2 scrollbar-hide">
+                          {recentlyUsedProjects.map(project => (
+                            <button
+                              key={project.id}
+                              onClick={() => {
+                                setSelectedProjectForTimer(project);
+                                setBottomSheetStep('time');
+                              }}
+                              className="flex-shrink-0 bg-white rounded-xl p-4 shadow-sm border border-slate-200 active:scale-[0.98] transition-transform min-w-[140px]"
+                            >
+                              <div className="flex items-center gap-2 mb-2">
+                                {renderProjectColorDot(project.color, 'w-3 h-3')}
+                                <span className="text-xs font-medium text-slate-500 truncate">Projekt</span>
+                              </div>
+                              <p className="font-semibold text-slate-900 text-sm truncate">{project.name}</p>
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+
+                    {/* All Projects */}
+                    <div>
+                      <p className="text-xs text-slate-500 uppercase tracking-wider mb-3">Alle Projekter</p>
+                      <div className="space-y-2">
+                        {otherProjects.map(project => (
+                          <button
+                            key={project.id}
+                            onClick={() => {
+                              setSelectedProjectForTimer(project);
+                              setBottomSheetStep('time');
+                            }}
+                            className="w-full bg-white rounded-xl p-4 shadow-sm border border-slate-200 active:scale-[0.98] transition-transform text-left"
+                          >
+                            <div className="flex items-center gap-3">
+                              {renderProjectColorDot(project.color, 'w-4 h-4')}
+                              <p className="font-semibold text-slate-900 flex-1">{project.name}</p>
+                              <ChevronRight size={20} className="text-slate-400" />
+                            </div>
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  </div>
+                </>
+              ) : (
+                // STEP 2: Select Time
+                <>
+                  <div className="p-6 pb-4">
+                    <div className="flex items-center gap-3 mb-6">
+                      <button
+                        onClick={() => {
+                          setBottomSheetStep('project');
+                          setDuration(1.0);
+                        }}
+                        className="p-2 text-slate-400 hover:text-slate-600 active:opacity-70 transition-colors"
+                      >
+                        <ChevronRight className="rotate-180" size={24} />
+                      </button>
+                      <div className="flex-1">
+                        <h2 className="text-xl font-bold text-slate-900">{selectedProjectForTimer?.name}</h2>
+                      </div>
+                      <button
+                        onClick={closeBottomSheet}
+                        className="p-2 text-slate-400 hover:text-slate-600 active:opacity-70 transition-colors"
+                      >
+                        <X size={24} />
+                      </button>
+                    </div>
+                  </div>
+
+                  <div className="flex-1 overflow-y-auto px-6 pb-6">
+                    {/* Time Display */}
+                    <div className="bg-white rounded-2xl p-8 mb-6 text-center shadow-sm">
+                      <p className="text-xs text-slate-500 uppercase tracking-wider mb-2">Timer</p>
+                      <p className="text-6xl font-bold text-slate-900">
+                        {formatHoursToTime(duration)}
+                      </p>
+                    </div>
+
+                    {/* +/- Buttons */}
+                    <div className="flex items-center justify-center gap-6 mb-6">
+                      <button 
+                        onClick={() => setDuration(Math.max(0.25, duration - 0.25))}
+                        className="w-16 h-16 rounded-full bg-white border-2 border-slate-200 flex items-center justify-center text-slate-600 active:bg-slate-50 transition-colors text-3xl font-light shadow-sm"
+                      >
+                        -
+                      </button>
+                      <button 
+                        onClick={() => setDuration(duration + 0.25)}
+                        className="w-16 h-16 rounded-full bg-white border-2 border-slate-200 flex items-center justify-center text-slate-600 active:bg-slate-50 transition-colors text-3xl font-light shadow-sm"
+                      >
+                        +
+                      </button>
+                    </div>
+
+                    {/* Preset Buttons */}
+                    <div className="grid grid-cols-5 gap-2 mb-6">
+                      {[0.5, 1, 2, 4, 7.5].map(val => (
+                        <button 
+                          key={val}
+                          onClick={() => setDuration(val)}
+                          className={`py-3 rounded-xl text-sm font-medium transition-all ${
+                            duration === val 
+                              ? 'bg-blue-500 text-white shadow-md transform scale-105' 
+                              : 'bg-white text-slate-600 border border-slate-200'
+                          }`}
+                        >
+                          {formatHoursToTime(val)}
+                        </button>
+                      ))}
+                    </div>
+
+                    {/* Save Button */}
+                    <button 
+                      onClick={handleLogTime}
+                      disabled={isSavingTime}
+                      className="w-full py-4 bg-blue-600 text-white rounded-xl font-bold text-lg shadow-lg shadow-blue-200 active:scale-[0.98] transition-transform disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+                    >
+                      {isSavingTime ? (
+                        <>
+                          <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
+                          Gemmer...
+                        </>
+                      ) : (
+                        <>
+                          <CheckCircle2 size={20} />
+                          Gem Registrering
+                        </>
+                      )}
+                    </button>
+                  </div>
+                </>
               )}
             </div>
           </div>
-
-        </div>
+        )}
       </div>
     );
   };
 
-  // 2. LOG TIME SCREEN
-  const renderLogScreen = () => (
-    <div className="flex flex-col h-full bg-white">
-      <Header 
-        title="Registrer tid" 
-        left={
-            <button onClick={() => setView('home')} className="flex items-center text-blue-500 text-base">
-                <ChevronRight className="rotate-180" size={24} />
-                Tilbage
-            </button>
-        }
-      />
-
-      <div className="flex-1 flex flex-col pt-[80px]">
-        <div className="flex-1 flex flex-col items-center justify-center p-6 space-y-10 animate-in zoom-in-95 duration-300">
-          
-          <div className="text-center space-y-2">
-            <h3 className="text-slate-500 text-sm font-medium uppercase tracking-wide">Valgt Projekt</h3>
-            <h2 className="text-3xl font-bold text-slate-900">{selectedProject?.name}</h2>
-          </div>
-          
-          <div className="w-full max-w-xs text-center space-y-8">
-            <div className="relative">
-                <div className="text-7xl font-bold text-slate-900 tracking-tighter">
-                {duration}<span className="text-2xl text-slate-400 ml-1 font-normal">t</span>
-                </div>
-            </div>
-            
-            <div className="flex items-center justify-center gap-6">
-              <button 
-                onClick={() => setDuration(Math.max(0.25, duration - 0.25))}
-                className="w-16 h-16 rounded-full bg-slate-100 flex items-center justify-center text-slate-600 active:bg-slate-200 transition-colors text-3xl font-light shadow-sm"
-              >-</button>
-              <button 
-                onClick={() => setDuration(duration + 0.25)}
-                className="w-16 h-16 rounded-full bg-slate-100 flex items-center justify-center text-slate-600 active:bg-slate-200 transition-colors text-3xl font-light shadow-sm"
-              >+</button>
-            </div>
-            
-            <div className="grid grid-cols-4 gap-2">
-                {[0.5, 1, 2, 4].map(val => (
-                    <button 
-                        key={val}
-                        onClick={() => setDuration(val)}
-                        className={`py-2 rounded-lg text-sm font-medium transition-all ${duration === val ? 'bg-blue-500 text-white shadow-md transform scale-105' : 'bg-slate-50 text-slate-600'}`}
-                    >
-                        {val}t
-                    </button>
-                ))}
-            </div>
-          </div>
-        </div>
-
-        <div className="p-4 pb-8 bg-white border-t border-slate-100">
-          <button 
-            onClick={handleLogTime}
-            className="w-full py-4 bg-blue-600 text-white rounded-2xl font-bold text-lg shadow-lg shadow-blue-200 active:scale-[0.98] transition-transform flex items-center justify-center gap-2"
-          >
-            Gem Registrering
-          </button>
-        </div>
-      </div>
-    </div>
-  );
-
-  // 3. CREATE PROJECT
-  const renderCreateProject = () => (
-    <div className="flex flex-col h-full bg-[#F2F2F7]">
-      <Header 
-        title="Nyt Projekt" 
-        left={
-            <button onClick={() => setView('home')} className="text-blue-500 text-base">
-                Annuller
-            </button>
-        }
-      />
-
-      <div className="pt-[90px] px-4 space-y-6">
-        <div className="bg-white rounded-xl overflow-hidden px-4 shadow-sm">
-            <div className="py-4 border-b border-slate-100">
-                <label className="block text-xs font-medium text-slate-500 mb-1 uppercase">Navn</label>
-                <input 
-                    autoFocus
-                    type="text" 
-                    value={newProjectName}
-                    onChange={(e) => setNewProjectName(e.target.value)}
-                    placeholder="Indtast projektnavn"
-                    className="w-full text-lg font-medium outline-none placeholder:text-slate-300"
-                />
-            </div>
-        </div>
-
-        <p className="text-slate-400 text-xs px-2">
-            Nye projekter bliver synlige for alle kollegaer med det samme.
-        </p>
-
-        <button 
-          onClick={handleCreateProject}
-          disabled={!newProjectName.trim()}
-          className="w-full py-3.5 bg-blue-500 disabled:opacity-50 disabled:active:scale-100 text-white rounded-xl font-bold shadow-md active:scale-[0.98] transition-all"
-        >
-          Opret Projekt
-        </button>
-      </div>
-    </div>
-  );
-
-  // 4. HISTORY & EDITING
-  const renderHistory = () => {
-    // Vis kun mine egne logs i historikken
-    const userLogs = logs.filter(l => l.user_id === currentUser?.id && l.hours !== null);
-    
-    // Group logs by date
-    const groupLogsByDate = (logs) => {
-      const grouped = {};
-      logs.forEach(log => {
-        const date = new Date(log.timestamp);
-        const dateKey = date.toDateString();
-        if (!grouped[dateKey]) {
-          grouped[dateKey] = [];
-        }
-        grouped[dateKey].push(log);
-      });
-      return grouped;
-    };
-
-    // Filter logs by selected date
-    const filteredLogs = selectedDateFilter 
-      ? userLogs.filter(log => {
-          const logDate = new Date(log.timestamp).toDateString();
-          const filterDate = new Date(selectedDateFilter).toDateString();
-          return logDate === filterDate;
-        })
-      : userLogs;
-
-    const groupedLogs = groupLogsByDate(filteredLogs);
-    const sortedDates = Object.keys(groupedLogs).sort((a, b) => new Date(b) - new Date(a));
-
-    // Helper to format date nicely
-    const formatDateHeader = (dateString) => {
-      const date = new Date(dateString);
-      const today = new Date().toDateString();
-      const yesterday = new Date(Date.now() - 86400000).toDateString();
-      
-      if (dateString === today) return 'I dag';
-      if (dateString === yesterday) return 'I går';
-      return date.toLocaleDateString('da-DK', { weekday: 'long', day: 'numeric', month: 'long' });
-    };
-
-    // Toggle date group expansion
-    const toggleDateGroup = (dateString) => {
-      const newExpanded = new Set(expandedDates);
-      if (newExpanded.has(dateString)) {
-        newExpanded.delete(dateString);
-      } else {
-        newExpanded.add(dateString);
-      }
-      setExpandedDates(newExpanded);
-    };
-
-    return (
-        <div className="flex flex-col h-full bg-[#F2F2F7]">
-            <Header 
-                title="Min Historik" 
-                left={
-                    <button onClick={() => setView('home')} className="flex items-center text-blue-500 text-base">
-                        <ChevronRight className="rotate-180" size={24} />
-                        Tilbage
-                    </button>
-                }
-            />
-    
-            <div className="flex-1 overflow-y-auto pt-[80px] px-4 pb-10">
-                {/* Date Filter Buttons */}
-                {userLogs.length > 0 && (
-                  <div className="mb-4 flex gap-2 overflow-x-auto pb-2">
-                    <button
-                      onClick={() => setSelectedDateFilter(null)}
-                      className={`px-4 py-2 rounded-lg text-sm font-medium whitespace-nowrap transition-colors ${
-                        selectedDateFilter === null 
-                          ? 'bg-blue-500 text-white' 
-                          : 'bg-white text-slate-600'
-                      }`}
-                    >
-                      Alle
-                    </button>
-                    <button
-                      onClick={() => setSelectedDateFilter(new Date().toISOString())}
-                      className={`px-4 py-2 rounded-lg text-sm font-medium whitespace-nowrap transition-colors ${
-                        selectedDateFilter && new Date(selectedDateFilter).toDateString() === new Date().toDateString()
-                          ? 'bg-blue-500 text-white' 
-                          : 'bg-white text-slate-600'
-                      }`}
-                    >
-                      I dag
-                    </button>
-                    <button
-                      onClick={() => {
-                        const yesterday = new Date();
-                        yesterday.setDate(yesterday.getDate() - 1);
-                        setSelectedDateFilter(yesterday.toISOString());
-                      }}
-                      className={`px-4 py-2 rounded-lg text-sm font-medium whitespace-nowrap transition-colors ${
-                        selectedDateFilter && new Date(selectedDateFilter).toDateString() === new Date(Date.now() - 86400000).toDateString()
-                          ? 'bg-blue-500 text-white' 
-                          : 'bg-white text-slate-600'
-                      }`}
-                    >
-                      I går
-                    </button>
-                  </div>
-                )}
-
-                {userLogs.length === 0 ? (
-                    <div className="flex flex-col items-center justify-center h-64 text-slate-400">
-                        <History size={48} className="mb-4 opacity-20" />
-                        <p>Ingen registreringer fundet</p>
-                    </div>
-                ) : sortedDates.length === 0 ? (
-                    <div className="flex flex-col items-center justify-center h-64 text-slate-400">
-                        <Calendar size={48} className="mb-4 opacity-20" />
-                        <p>Ingen registreringer for valgte dato</p>
-                    </div>
-                ) : (
-                    <div className="space-y-3">
-                        {sortedDates.map(dateString => {
-                            const dateLogs = groupedLogs[dateString];
-                            const isExpanded = expandedDates.has(dateString);
-                            const dateTotal = dateLogs.reduce((sum, log) => sum + log.hours, 0);
-                            
-                            return (
-                                <div key={dateString} className="bg-white rounded-xl shadow-sm overflow-hidden">
-                                    {/* Date Header - Clickable to expand/collapse */}
-                                    <button
-                                        onClick={() => toggleDateGroup(dateString)}
-                                        className="w-full p-4 flex items-center justify-between hover:bg-slate-50 transition-colors"
-                                    >
-                                        <div className="flex items-center gap-3">
-                                            <Calendar size={18} className="text-slate-400" />
-                                            <div className="text-left">
-                                                <p className="font-semibold text-slate-900">{formatDateHeader(dateString)}</p>
-                                                <p className="text-xs text-slate-500">{dateLogs.length} registrering{dateLogs.length !== 1 ? 'er' : ''}</p>
-                                            </div>
-                                        </div>
-                                        <div className="flex items-center gap-3">
-                                            <span className="text-slate-900 font-medium">{dateTotal}t</span>
-                                            {isExpanded ? <ChevronUp size={20} className="text-slate-400" /> : <ChevronDown size={20} className="text-slate-400" />}
-                                        </div>
-                                    </button>
-                                    
-                                    {/* Logs for this date */}
-                                    {isExpanded && (
-                                        <div className="divide-y divide-slate-100">
-                                            {dateLogs
-                                                .sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp))
-                                                .map(log => (
-                                                    <button 
-                                                        key={log.id} 
-                                                        onClick={() => setEditingLog(log)}
-                                                        className="w-full p-4 pl-12 flex justify-between items-center text-left hover:bg-slate-50 active:bg-slate-100 transition-colors"
-                                                    >
-                                                        <div className="flex items-center gap-3 flex-1">
-                                                            {renderProjectColorDot(log.project_color, 'w-2 h-2')}
-                                                            <div>
-                                                                <p className="font-semibold text-slate-900">{log.project_name}</p>
-                                                                <p className="text-xs text-slate-500">
-                                                                    {new Date(log.timestamp).toLocaleTimeString('da-DK', {hour:'2-digit', minute:'2-digit'})}
-                                                                </p>
-                                                            </div>
-                                                        </div>
-                                                        <span className="text-slate-900 font-medium bg-slate-100 px-2 py-1 rounded-md min-w-[3rem] text-center">{log.hours}t</span>
-                                                    </button>
-                                                ))}
-                                        </div>
-                                    )}
-                                </div>
-                            );
-                        })}
-                    </div>
-                )}
-                
-                {userLogs.length > 0 && (
-                    <div className="mt-6 text-center">
-                        <p className="text-slate-400 text-xs uppercase tracking-wide mb-1">Mine Timer Total</p>
-                        <p className="text-3xl font-bold text-slate-900">{userLogs.reduce((acc, curr) => acc + curr.hours, 0)}t</p>
-                    </div>
-                )}
-            </div>
-    
-            {/* --- EDIT LOG MODAL (Sheet style) --- */}
-            {editingLog && (
-                <div className="absolute inset-0 z-50 flex items-end justify-center">
-                    {/* Backdrop */}
-                    <div 
-                        className="absolute inset-0 bg-black/40 backdrop-blur-sm animate-in fade-in duration-200"
-                        onClick={() => setEditingLog(null)}
-                    ></div>
-                    
-                    {/* Sheet */}
-                    <div className="relative bg-[#F2F2F7] w-full rounded-t-[2rem] p-6 pb-10 shadow-2xl animate-in slide-in-from-bottom duration-300">
-                        <div className="flex justify-between items-start mb-6">
-                            <div>
-                                <h3 className="text-lg font-bold text-slate-900">Rediger registrering</h3>
-                                <p className="text-slate-500 text-sm">{editingLog.project_name}</p>
-                            </div>
-                            <button onClick={() => setEditingLog(null)} className="bg-slate-200 p-1 rounded-full text-slate-500">
-                                <X size={20} />
-                            </button>
-                        </div>
-    
-                        <div className="bg-white rounded-xl p-4 mb-6 shadow-sm flex items-center justify-between">
-                            <span className="text-slate-500 font-medium">Timer</span>
-                            <div className="flex items-center gap-4">
-                                 <button 
-                                    onClick={() => setEditingLog({...editingLog, hours: Math.max(0.25, editingLog.hours - 0.25)})}
-                                    className="w-10 h-10 rounded-full bg-slate-100 text-slate-600 flex items-center justify-center text-xl font-bold active:bg-slate-200"
-                                >-</button>
-                                <span className="text-xl font-bold w-12 text-center tabular-nums">{editingLog.hours}</span>
-                                <button 
-                                    onClick={() => setEditingLog({...editingLog, hours: editingLog.hours + 0.25})}
-                                    className="w-10 h-10 rounded-full bg-slate-100 text-slate-600 flex items-center justify-center text-xl font-bold active:bg-slate-200"
-                                >+</button>
-                            </div>
-                        </div>
-    
-                        <div className="space-y-3">
-                            <button 
-                                onClick={() => handleUpdateLog(editingLog.id, editingLog.hours)}
-                                className="w-full py-3.5 bg-blue-500 text-white font-bold rounded-xl shadow-md active:scale-[0.98] transition-transform"
-                            >
-                                Gem ændringer
-                            </button>
-                            <button 
-                                onClick={() => {
-                                    if(confirm("Er du sikker på du vil slette denne registrering?")) {
-                                        deleteLog(editingLog.id);
-                                    }
-                                }}
-                                className="w-full py-3.5 bg-white text-red-500 font-bold rounded-xl border border-slate-200 active:bg-red-50 transition-colors"
-                            >
-                                Slet registrering
-                            </button>
-                        </div>
-                    </div>
-                </div>
-            )}
-        </div>
-      );
-  }
 
   return (
     <div className="font-sans text-slate-900 bg-slate-200 sm:bg-slate-200 h-screen w-full flex sm:items-center sm:justify-center">
-      {/* Mobile Frame Simulation - Only visible on desktop (sm breakpoint and above) */}
       <div className="w-full h-full bg-[#F2F2F7] sm:max-w-md sm:max-h-[850px] sm:rounded-[2.5rem] sm:shadow-2xl sm:overflow-hidden relative flex flex-col sm:border-[8px] sm:border-slate-900">
-        
-        {/* Notch Area fake - Only on desktop */}
         <div className="absolute top-0 left-1/2 -translate-x-1/2 w-32 h-6 bg-slate-900 rounded-b-xl z-50 sm:block hidden"></div>
         
         <div className="flex-1 overflow-hidden relative">
-            {view === 'loading' && <div className="flex h-full items-center justify-center bg-white"><div className="w-8 h-8 border-4 border-blue-500 border-t-transparent rounded-full animate-spin"></div></div>}
-            {view === 'login' && renderLogin()}
-            {view === 'home' && renderHome()}
-            {view === 'log' && renderLogScreen()}
-            {view === 'create-project' && renderCreateProject()}
-            {view === 'history' && renderHistory()}
+          {view === 'loading' && (
+            <div className="flex h-full items-center justify-center bg-white">
+              <div className="w-8 h-8 border-4 border-blue-500 border-t-transparent rounded-full animate-spin"></div>
+            </div>
+          )}
+          {view === 'login' && renderLogin()}
+          {view === 'home' && renderHome()}
         </div>
         
-        {/* Home Indicator - Only on desktop */}
         <div className="absolute bottom-1 left-1/2 -translate-x-1/2 w-1/3 h-1.5 bg-slate-900/20 rounded-full sm:block hidden"></div>
       </div>
     </div>
