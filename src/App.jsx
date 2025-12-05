@@ -2,19 +2,12 @@ import React, { useState, useEffect } from 'react';
 import { Plus, Save, Trash2, FolderPlus, X, ChevronRight, Edit2, Eye, EyeOff, LogOut, User, History, Calendar, ChevronDown, ChevronUp } from 'lucide-react';
 import { supabase } from './lib/supabase';
 
-// --- KONSTANTER ---
-// Standard medarbejdere til login-skærmen (dette er stadig hardcoded for nemheds skyld)
-const EMPLOYEES = [
-  { id: 'u1', name: 'Louise', initials: 'LO', color: 'bg-blue-100 text-blue-700' },
-  { id: 'u2', name: 'Sebastian', initials: 'SE', color: 'bg-pink-100 text-pink-700' },
-  { id: 'u3', name: 'Mads', initials: 'MA', color: 'bg-yellow-100 text-yellow-700' },
-];
-
 export default function TimeTracker() {
   // --- STATE ---
   const [currentUser, setCurrentUser] = useState(null); 
   const [view, setView] = useState('loading'); // loading, login, home, log, create-project, history
   
+  const [users, setUsers] = useState([]);
   const [projects, setProjects] = useState([]);
   const [logs, setLogs] = useState([]);
   
@@ -32,13 +25,25 @@ export default function TimeTracker() {
 
   // --- INITIALIZATION ---
   useEffect(() => {
-    // 1. Tjek om brugeren er logget ind (gemt på telefonen)
-    const savedUser = localStorage.getItem('he_user');
+    // 1. Hent brugere fra database
+    fetchUsers();
     
-    if (savedUser) {
-        setCurrentUser(JSON.parse(savedUser));
-        setView('home');
-        fetchData(); // Hent data fra Supabase
+    // 2. Tjek om brugeren er logget ind (gemt på telefonen)
+    const savedUserId = localStorage.getItem('he_user_id');
+    
+    if (savedUserId) {
+        // Hent brugerdata fra database baseret på gemt ID
+        fetchUserById(savedUserId).then(user => {
+            if (user) {
+                setCurrentUser(user);
+                setView('home');
+                fetchData(); // Hent data fra Supabase
+            } else {
+                // Bruger findes ikke længere, vis login
+                localStorage.removeItem('he_user_id');
+                setView('login');
+            }
+        });
     } else {
         setView('login');
     }
@@ -57,6 +62,48 @@ export default function TimeTracker() {
       });
     }
   }, [logs.length, currentUser]);
+
+  // Hent brugere fra Supabase
+  const fetchUsers = async () => {
+    const { data: usersData, error: usersError } = await supabase
+      .from('he_time_users')
+      .select('*')
+      .eq('is_active', true)
+      .order('name');
+    
+    if (usersData) {
+      // Konverter database color til Tailwind classes hvis nødvendigt
+      const formattedUsers = usersData.map(user => ({
+        ...user,
+        colorClass: user.color || 'bg-gray-100 text-gray-700'
+      }));
+      setUsers(formattedUsers);
+    }
+    if (usersError) console.error('Fejl ved hentning af brugere:', usersError);
+  };
+
+  // Hent specifik bruger efter ID
+  const fetchUserById = async (userId) => {
+    const { data, error } = await supabase
+      .from('he_time_users')
+      .select('*')
+      .eq('id', userId)
+      .eq('is_active', true)
+      .single();
+    
+    if (error) {
+      console.error('Fejl ved hentning af bruger:', error);
+      return null;
+    }
+    
+    if (data) {
+      return {
+        ...data,
+        colorClass: data.color || 'bg-gray-100 text-gray-700'
+      };
+    }
+    return null;
+  };
 
   // Hent data fra Supabase
   const fetchData = async () => {
@@ -86,8 +133,9 @@ export default function TimeTracker() {
 
   // --- ACTIONS ---
 
-  const handleLogin = (user) => {
-      localStorage.setItem('he_user', JSON.stringify(user));
+  const handleLogin = async (user) => {
+      // Gem kun user_id i localStorage
+      localStorage.setItem('he_user_id', user.id);
       setCurrentUser(user);
       setView('home');
       fetchData();
@@ -95,7 +143,7 @@ export default function TimeTracker() {
 
   const handleLogout = () => {
       if(confirm("Er du sikker på du vil logge ud?")) {
-        localStorage.removeItem('he_user');
+        localStorage.removeItem('he_user_id');
         setCurrentUser(null);
         setView('login');
         setProjects([]);
@@ -107,55 +155,81 @@ export default function TimeTracker() {
     if (!newProjectName.trim()) return;
     
     const newProject = {
-      id: crypto.randomUUID(), // Generer et unikt ID
-      name: newProjectName,
-      color: 'bg-indigo-500 text-white',
-      is_hidden: false
+      id: crypto.randomUUID(), // Generer et unikt UUID som text ID
+      name: newProjectName.trim(),
+      color: '#6366f1', // Default indigo color (hex format)
+      type: null, // Kan udvides senere
+      is_hidden: false,
+      due_date: null // Kan udvides senere
     };
 
     // Optimistisk UI opdatering
+    const tempId = newProject.id;
     setProjects(prev => [...prev, newProject]);
     setNewProjectName('');
     setSelectedProject(newProject);
     setView('log');
 
     // Gem i Supabase
-    const { error } = await supabase
+    const { data, error } = await supabase
       .from('he_time_projects')
-      .insert([newProject]);
+      .insert([newProject])
+      .select()
+      .single();
 
     if (error) {
+        // Rul tilbage optimistisk opdatering
+        setProjects(prev => prev.filter(p => p.id !== tempId));
         alert('Kunne ikke oprette projekt: ' + error.message);
-        // Rul tilbage hvis fejl (her kunne man lave mere avanceret fejlhåndtering)
+    } else if (data) {
+        // Erstat med rigtig data fra database
+        setProjects(prev => prev.map(p => p.id === tempId ? data : p));
+        setSelectedProject(data);
     }
   };
 
   const handleLogTime = async () => {
+    if (!currentUser || !currentUser.id) {
+      alert('Fejl: Ingen bruger valgt');
+      return;
+    }
+
     const newLog = {
-      // Vi lader Supabase generere ID hvis vi bruger bigserial, men her sender vi timestamp som ID eller lader den være
-      id: Date.now(), 
       project_id: selectedProject.id,
       project_name: selectedProject.name,
       project_color: selectedProject.color,
       hours: duration,
       timestamp: new Date().toISOString(),
-      user_data: currentUser // Gemmer hele brugerobjektet som JSONB
+      user_id: currentUser.id, // Brug foreign key til he_time_users
+      user_data: currentUser // Gem også hele brugerobjektet som JSONB for bagudkompatibilitet
     };
     
     // Optimistisk UI opdatering
-    setLogs(prev => [newLog, ...prev]);
+    const tempId = 'temp-' + Date.now();
+    const optimisticLog = {
+      id: tempId,
+      ...newLog,
+    };
+    setLogs(prev => [optimisticLog, ...prev]);
     setDuration(1.0);
     setSelectedProject(null);
     setView('home');
 
     // Gem i Supabase
-    const { error } = await supabase
+    const { data, error } = await supabase
       .from('he_time_logs')
-      .insert([newLog]);
+      .insert([newLog])
+      .select()
+      .single();
 
     if (error) {
         console.error('Kunne ikke gemme tid:', error);
+        // Rul tilbage optimistisk opdatering
+        setLogs(prev => prev.filter(log => log.id !== tempId));
         alert('Fejl ved gemning af tid. Tjek din internetforbindelse.');
+    } else if (data) {
+        // Erstat optimistisk opdatering med rigtig data
+        setLogs(prev => prev.map(log => log.id === tempId ? data : log));
     }
   };
 
@@ -202,6 +276,27 @@ export default function TimeTracker() {
         .eq('id', projectId);
   };
 
+  // --- HELPER FUNCTIONS ---
+  
+  // Helper to render project color dot - handles both hex colors and Tailwind classes
+  const renderProjectColorDot = (color, size = 'w-3 h-3') => {
+    if (!color) return <div className={`${size} rounded-full bg-gray-400`}></div>;
+    
+    // Check if it's a Tailwind class
+    if (color.includes('bg-')) {
+      const cleanColor = color.replace('text-white', '').trim();
+      return <div className={`${size} rounded-full ${cleanColor}`}></div>;
+    }
+    
+    // Otherwise treat as hex/rgb color
+    return (
+      <div 
+        className={`${size} rounded-full`}
+        style={{ backgroundColor: color }}
+      ></div>
+    );
+  };
+
   // --- HELPER COMPONENTS ---
   
   const Header = ({ title, left, right }) => (
@@ -215,36 +310,65 @@ export default function TimeTracker() {
   // --- VIEWS ---
 
   // 0. LOGIN SCREEN
-  const renderLogin = () => (
+  const renderLogin = () => {
+    // Konverter database color til Tailwind class hvis det ikke allerede er det
+    const getColorClass = (color) => {
+      if (!color) return 'bg-gray-100 text-gray-700';
+      // Hvis det allerede er en Tailwind class, brug den
+      if (color.includes('bg-')) return color;
+      // Ellers konverter hex/rgb til Tailwind class eller brug som inline style
+      return 'bg-gray-100 text-gray-700';
+    };
+
+    return (
       <div className="flex flex-col h-full bg-white p-6 justify-center animate-in fade-in duration-500">
           <div className="mb-10 text-center">
               <h1 className="text-2xl font-bold text-slate-900 mb-2">Velkommen 👋</h1>
               <p className="text-slate-500">Hvem skal bruge denne telefon?</p>
           </div>
 
-          <div className="space-y-4">
-              {EMPLOYEES.map(emp => (
-                  <button
-                    key={emp.id}
-                    onClick={() => handleLogin(emp)}
-                    className="w-full p-4 rounded-2xl border border-slate-100 bg-slate-50 hover:bg-slate-100 active:scale-[0.98] transition-all flex items-center gap-4 text-left shadow-sm"
-                  >
-                      <div className={`w-12 h-12 rounded-full ${emp.color} flex items-center justify-center font-bold text-lg`}>
-                          {emp.initials}
-                      </div>
-                      <div>
-                          <p className="font-bold text-slate-900">{emp.name}</p>
-                          <p className="text-xs text-slate-400">Tryk for at logge ind</p>
-                      </div>
-                  </button>
-              ))}
-          </div>
+          {users.length === 0 ? (
+            <div className="text-center py-8 text-slate-400">
+              <div className="w-8 h-8 border-4 border-blue-500 border-t-transparent rounded-full animate-spin mx-auto mb-4"></div>
+              <p>Henter brugere...</p>
+            </div>
+          ) : (
+            <div className="space-y-4">
+                {users.map(user => (
+                    <button
+                      key={user.id}
+                      onClick={() => handleLogin(user)}
+                      className="w-full p-4 rounded-2xl border border-slate-100 bg-slate-50 hover:bg-slate-100 active:scale-[0.98] transition-all flex items-center gap-4 text-left shadow-sm"
+                    >
+                        {user.avatar_url ? (
+                          <img 
+                            src={user.avatar_url} 
+                            alt={user.name}
+                            className="w-12 h-12 rounded-full object-cover"
+                          />
+                        ) : (
+                          <div 
+                            className={`w-12 h-12 rounded-full ${getColorClass(user.color)} flex items-center justify-center font-bold text-lg`}
+                            style={user.color && !user.color.includes('bg-') ? { backgroundColor: user.color } : {}}
+                          >
+                              {user.initials}
+                          </div>
+                        )}
+                        <div>
+                            <p className="font-bold text-slate-900">{user.name}</p>
+                            <p className="text-xs text-slate-400">Tryk for at logge ind</p>
+                        </div>
+                    </button>
+                ))}
+            </div>
+          )}
           
           <p className="mt-8 text-center text-xs text-slate-300">
               Dette valg gemmes på enheden.
           </p>
       </div>
-  );
+    );
+  };
 
   // 1. HOME SCREEN
   const renderHome = () => {
@@ -253,7 +377,7 @@ export default function TimeTracker() {
 
     // Filtrer logs til kun at vise mine egne "i dag" for overskuelighed
     const myLogsToday = logs.filter(l => {
-        const isMe = l.user_data?.id === currentUser?.id;
+        const isMe = l.user_id === currentUser?.id;
         const isToday = new Date(l.timestamp).toDateString() === new Date().toDateString();
         return isMe && isToday;
     });
@@ -264,9 +388,20 @@ export default function TimeTracker() {
           title="Tidsregistrering" 
           left={
             <button onClick={handleLogout} className="text-slate-400 p-1 hover:text-slate-600">
-                 <div className={`w-8 h-8 rounded-full ${currentUser?.color} flex items-center justify-center text-xs font-bold ring-2 ring-white`}>
+                {currentUser?.avatar_url ? (
+                  <img 
+                    src={currentUser.avatar_url} 
+                    alt={currentUser.name}
+                    className="w-8 h-8 rounded-full object-cover ring-2 ring-white"
+                  />
+                ) : (
+                  <div 
+                    className={`w-8 h-8 rounded-full ${currentUser?.colorClass || 'bg-gray-100 text-gray-700'} flex items-center justify-center text-xs font-bold ring-2 ring-white`}
+                    style={currentUser?.color && !currentUser.color.includes('bg-') ? { backgroundColor: currentUser.color } : {}}
+                  >
                     {currentUser?.initials}
-                </div>
+                  </div>
+                )}
             </button>
           }
           right={
@@ -306,7 +441,7 @@ export default function TimeTracker() {
                     `}
                     >
                         <div className="flex justify-between items-start w-full">
-                            <div className={`w-3 h-3 rounded-full ${project.color?.replace('text-white', '') || 'bg-gray-400'}`}></div>
+                            {renderProjectColorDot(project.color)}
                             {isEditingProjects && (
                                 <div 
                                     onClick={(e) => toggleProjectVisibility(e, project.id, project.is_hidden)}
@@ -367,10 +502,10 @@ export default function TimeTracker() {
               ) : (
                 myLogsToday.map(log => (
                   <div key={log.id} className="p-4 flex justify-between items-center active:bg-slate-50 transition-colors" onClick={() => setView('history')}>
-                    <div className="flex items-center gap-3">
-                        <div className={`w-2 h-2 rounded-full ${log.project_color?.replace('text-white', '') || 'bg-gray-400'}`}></div>
-                        <span className="text-slate-900 font-medium">{log.project_name}</span>
-                    </div>
+                     <div className="flex items-center gap-3">
+                         {renderProjectColorDot(log.project_color, 'w-2 h-2')}
+                         <span className="text-slate-900 font-medium">{log.project_name}</span>
+                     </div>
                     <div className="flex items-center gap-2 text-slate-400">
                         <span className="text-slate-900 font-medium">{log.hours}t</span>
                         <ChevronRight size={16} />
@@ -496,7 +631,7 @@ export default function TimeTracker() {
   // 4. HISTORY & EDITING
   const renderHistory = () => {
     // Vis kun mine egne logs i historikken
-    const userLogs = logs.filter(l => l.user_data?.id === currentUser?.id && l.hours !== null);
+    const userLogs = logs.filter(l => l.user_id === currentUser?.id && l.hours !== null);
     
     // Group logs by date
     const groupLogsByDate = (logs) => {
@@ -648,7 +783,7 @@ export default function TimeTracker() {
                                                         className="w-full p-4 pl-12 flex justify-between items-center text-left hover:bg-slate-50 active:bg-slate-100 transition-colors"
                                                     >
                                                         <div className="flex items-center gap-3 flex-1">
-                                                            <div className={`w-2 h-2 rounded-full ${log.project_color?.replace('text-white', '') || 'bg-gray-400'}`}></div>
+                                                            {renderProjectColorDot(log.project_color, 'w-2 h-2')}
                                                             <div>
                                                                 <p className="font-semibold text-slate-900">{log.project_name}</p>
                                                                 <p className="text-xs text-slate-500">
