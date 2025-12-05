@@ -78,3 +78,25 @@ body {
 .fade-out-200 {
   animation: fadeOut 200ms ease-in;
 }
+
+@keyframes scaleOutFade {
+  from {
+    transform: scale(1);
+    opacity: 1;
+    max-height: 200px;
+    margin-bottom: 0.5rem;
+  }
+  to {
+    transform: scale(0.8);
+    opacity: 0;
+    max-height: 0;
+    margin-bottom: 0;
+    padding-top: 0;
+    padding-bottom: 0;
+  }
+}
+
+.scale-out-fade-300 {
+  animation: scaleOutFade 300ms ease-in forwards;
+  overflow: hidden;
+}

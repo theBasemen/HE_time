@@ -20,6 +20,7 @@ export default function TimeTracker() {
   const [isLoadingData, setIsLoadingData] = useState(false);
   const [isSavingTime, setIsSavingTime] = useState(false);
   const [justSavedLogId, setJustSavedLogId] = useState(null);
+  const [deletingLogId, setDeletingLogId] = useState(null);
   
   // Bottom Sheet States
   const [isBottomSheetOpen, setIsBottomSheetOpen] = useState(false);
@@ -235,15 +236,23 @@ export default function TimeTracker() {
   };
 
   const deleteLog = async (id) => {
-    setLogs(logs.filter(l => l.id !== id));
-    closeEditModal();
-
-    const { error } = await supabase
+    // Start exit animation
+    setDeletingLogId(id);
+    
+    // Wait for animation to complete before removing from state
+    setTimeout(() => {
+      setLogs(logs.filter(l => l.id !== id));
+      setDeletingLogId(null);
+      
+      // Delete from Supabase
+      supabase
         .from('he_time_logs')
         .delete()
-        .eq('id', id);
-
-    if (error) console.error("Fejl ved sletning:", error);
+        .eq('id', id)
+        .then(({ error }) => {
+          if (error) console.error("Fejl ved sletning:", error);
+        });
+    }, 300);
   };
 
   // --- HELPER FUNCTIONS ---
@@ -497,6 +506,7 @@ export default function TimeTracker() {
                   className={`
                     bg-white rounded-xl p-4 shadow-sm transition-all cursor-pointer active:scale-[0.98]
                     ${justSavedLogId === log.id ? 'ring-2 ring-blue-500 bg-blue-50' : ''}
+                    ${deletingLogId === log.id ? 'scale-out-fade-300' : ''}
                     hover:bg-slate-50
                   `}
                 >
@@ -515,7 +525,9 @@ export default function TimeTracker() {
                       <button
                         onClick={(e) => {
                           e.stopPropagation();
-                          deleteLog(log.id);
+                          if(confirm("Er du sikker på du vil slette denne registrering?")) {
+                            deleteLog(log.id);
+                          }
                         }}
                         className="p-2 text-slate-400 hover:text-red-500 active:opacity-70 transition-colors"
                       >
