@@ -629,7 +629,7 @@ export default function TimeTracker() {
             <div 
               className={`flex-1 overflow-y-auto ${myLogsForDate.length > 6 ? '' : 'pb-32'}`} 
               key={`logs-${selectedDate.getTime()}`}
-              style={{ WebkitOverflowScrolling: 'touch' }}
+              style={{ WebkitOverflowScrolling: 'touch', touchAction: 'pan-y' }}
             >
               <div className="space-y-0">
               {myLogsForDate.map((log, index) => {
@@ -645,7 +645,10 @@ export default function TimeTracker() {
                       ${shouldAnimate ? 'fade-in-slide-up-200' : ''}
                       hover:bg-slate-50 active:bg-slate-100 transition-colors
                     `}
-                    style={shouldAnimate ? { animationDelay: `${index * 30}ms` } : {}}
+                    style={{ 
+                      ...(shouldAnimate ? { animationDelay: `${index * 30}ms` } : {}),
+                      touchAction: 'pan-y'
+                    }}
                   >
                     <div className="flex items-center gap-3 flex-1 min-w-0">
                       {renderProjectColorDot(log.project_color, 'w-3 h-3')}
