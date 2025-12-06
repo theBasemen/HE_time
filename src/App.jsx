@@ -618,8 +618,52 @@ export default function TimeTracker() {
               <p className="text-slate-400 font-medium mb-1">Ingen registreringer i dag</p>
               <p className="text-sm text-slate-400">Tryk på knappen nedenfor for at registrere tid</p>
             </div>
+          ) : myLogsForDate.length > 4 ? (
+            // Traditional list view for more than 4 entries
+            <div 
+              className={`space-y-0 pb-32 ${myLogsForDate.length > 6 ? 'max-h-[60vh] overflow-y-auto' : ''}`} 
+              key={`logs-${selectedDate.getTime()}`}
+            >
+              {myLogsForDate.map((log, index) => {
+                const shouldAnimate = shouldAnimateLogs && previousDateRef.current !== null;
+                return (
+                  <div
+                    key={log.id}
+                    onClick={() => setEditingLog(log)}
+                    className={`
+                      flex items-center justify-between py-3 px-4 border-b border-slate-100 cursor-pointer
+                      ${justSavedLogId === log.id ? 'bg-blue-50' : ''}
+                      ${deletingLogId === log.id ? 'scale-out-fade-300' : ''}
+                      ${shouldAnimate ? 'fade-in-slide-up-200' : ''}
+                      hover:bg-slate-50 active:bg-slate-100 transition-colors
+                    `}
+                    style={shouldAnimate ? { animationDelay: `${index * 30}ms` } : {}}
+                  >
+                    <div className="flex items-center gap-3 flex-1 min-w-0">
+                      {renderProjectColorDot(log.project_color, 'w-3 h-3')}
+                      <p className="font-medium text-slate-900 truncate">{log.project_name}</p>
+                    </div>
+                    <div className="flex items-center gap-3 flex-shrink-0">
+                      <span className="text-base font-bold text-slate-900">{formatHoursToTime(log.hours)}</span>
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          if(confirm("Er du sikker på du vil slette denne registrering?")) {
+                            deleteLog(log.id);
+                          }
+                        }}
+                        className="p-1.5 text-slate-400 hover:text-red-500 active:opacity-70 transition-colors"
+                      >
+                        <Trash2 size={16} />
+                      </button>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
           ) : (
-            <div className="space-y-2" key={`logs-${selectedDate.getTime()}`}>
+            // Card view for 4 or fewer entries
+            <div className="space-y-2 pb-32" key={`logs-${selectedDate.getTime()}`}>
               {myLogsForDate.map((log, index) => {
                 // Determine if this log should be animated based on date change
                 const shouldAnimate = shouldAnimateLogs && previousDateRef.current !== null;
@@ -709,7 +753,8 @@ export default function TimeTracker() {
               <div className="space-y-3">
                 <button 
                   onClick={() => handleUpdateLog(editingLog.id, editingLog.hours)}
-                  className="w-full py-3.5 bg-blue-500 text-white font-bold rounded-xl shadow-md active:scale-[0.98] transition-transform"
+                  className="w-full py-3.5 text-white font-bold rounded-xl shadow-md active:scale-[0.98] transition-transform"
+                  style={{ backgroundColor: '#d0335a' }}
                 >
                   Gem ændringer
                 </button>
@@ -901,9 +946,10 @@ export default function TimeTracker() {
                           onClick={() => setDuration(val)}
                           className={`py-3 rounded-xl text-sm font-medium transition-all ${
                             duration === val 
-                              ? 'bg-blue-500 text-white shadow-md transform scale-105' 
+                              ? 'text-white shadow-md transform scale-105' 
                               : 'bg-white text-slate-600 border border-slate-200'
                           }`}
+                          style={duration === val ? { backgroundColor: '#d0335a' } : {}}
                         >
                           {formatHoursToTime(val)}
                         </button>
@@ -914,7 +960,8 @@ export default function TimeTracker() {
                     <button 
                       onClick={handleLogTime}
                       disabled={isSavingTime}
-                      className="w-full py-4 bg-blue-600 text-white rounded-xl font-bold text-lg shadow-lg shadow-blue-200 active:scale-[0.98] transition-transform disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+                      className="w-full py-4 text-white rounded-xl font-bold text-lg shadow-lg active:scale-[0.98] transition-transform disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+                      style={{ backgroundColor: '#d0335a', boxShadow: '0 10px 15px -3px rgba(208, 51, 90, 0.3), 0 4px 6px -2px rgba(208, 51, 90, 0.2)' }}
                     >
                       {isSavingTime ? (
                         <>
