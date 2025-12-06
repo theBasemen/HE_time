@@ -56,10 +56,10 @@ export default function TimeTracker() {
         // Force a reflow to ensure animation starts
         void document.body.offsetHeight;
         // Keep animation class long enough for staggered animations to complete
-        // Assuming max 20 items with 30ms delay each = 600ms + 200ms animation = 800ms
+        // Assuming max 20 items with 30ms delay each = 600ms + 400ms animation = 1000ms
         const timer = setTimeout(() => {
           setShouldAnimateLogs(false);
-        }, 850); // Buffer for staggered animations
+        }, 1050); // Buffer for staggered animations
         return () => clearTimeout(timer);
       });
       previousDateRef.current = currentDateKey;

@@ -116,5 +116,5 @@ body {
 .fade-in-slide-up-200 {
   opacity: 0;
   transform: scale(0.95);
-  animation: fadeInScale 200ms ease-out forwards;
+  animation: fadeInScale 400ms ease-out forwards;
 }
