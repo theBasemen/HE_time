@@ -600,10 +600,10 @@ export default function TimeTracker() {
         </div>
 
         {/* Main Content - Selected Date's Logs */}
-        <div className="flex-1 overflow-y-auto px-4 py-6">
+        <div className="flex-1 flex flex-col overflow-hidden px-4 py-6">
           {/* Total Hours */}
           {dateTotal > 0 && (
-            <div className="mb-6 bg-white rounded-2xl p-6 shadow-sm">
+            <div className="mb-6 bg-white rounded-2xl p-6 shadow-sm flex-shrink-0">
               <div className="flex items-center justify-between">
                 <div>
                   <p className="text-xs text-slate-500 uppercase tracking-wider mb-1">Total for dagen</p>
@@ -619,7 +619,7 @@ export default function TimeTracker() {
 
           {/* Logs List */}
           {myLogsForDate.length === 0 ? (
-            <div className="bg-white rounded-2xl p-12 text-center">
+            <div className="bg-white rounded-2xl p-12 text-center flex-shrink-0">
               <History size={48} className="mx-auto mb-4 text-slate-300" />
               <p className="text-slate-400 font-medium mb-1">Ingen registreringer i dag</p>
               <p className="text-sm text-slate-400">Tryk på knappen nedenfor for at registrere tid</p>
@@ -627,10 +627,11 @@ export default function TimeTracker() {
           ) : myLogsForDate.length > 4 ? (
             // Traditional list view for more than 4 entries
             <div 
-              className={`space-y-0 ${myLogsForDate.length > 6 ? 'max-h-[400px] overflow-y-auto pb-4' : 'pb-32'}`} 
+              className={`flex-1 overflow-y-auto ${myLogsForDate.length > 6 ? '' : 'pb-32'}`} 
               key={`logs-${selectedDate.getTime()}`}
-              style={myLogsForDate.length > 6 ? { WebkitOverflowScrolling: 'touch' } : {}}
+              style={{ WebkitOverflowScrolling: 'touch' }}
             >
+              <div className="space-y-0">
               {myLogsForDate.map((log, index) => {
                 const shouldAnimate = shouldAnimateLogs && previousDateRef.current !== null;
                 return (
@@ -667,10 +668,11 @@ export default function TimeTracker() {
                   </div>
                 );
               })}
+              </div>
             </div>
           ) : (
             // Card view for 4 or fewer entries
-            <div className="space-y-2 pb-32" key={`logs-${selectedDate.getTime()}`}>
+            <div className="space-y-2 pb-32 flex-shrink-0" key={`logs-${selectedDate.getTime()}`}>
               {myLogsForDate.map((log, index) => {
                 // Determine if this log should be animated based on date change
                 const shouldAnimate = shouldAnimateLogs && previousDateRef.current !== null;
