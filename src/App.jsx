@@ -627,8 +627,9 @@ export default function TimeTracker() {
           ) : myLogsForDate.length > 4 ? (
             // Traditional list view for more than 4 entries
             <div 
-              className={`space-y-0 pb-32 ${myLogsForDate.length > 6 ? 'max-h-[60vh] overflow-y-auto' : ''}`} 
+              className={`space-y-0 ${myLogsForDate.length > 6 ? 'max-h-[400px] overflow-y-auto pb-4' : 'pb-32'}`} 
               key={`logs-${selectedDate.getTime()}`}
+              style={myLogsForDate.length > 6 ? { WebkitOverflowScrolling: 'touch' } : {}}
             >
               {myLogsForDate.map((log, index) => {
                 const shouldAnimate = shouldAnimateLogs && previousDateRef.current !== null;
