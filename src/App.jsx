@@ -359,8 +359,11 @@ export default function TimeTracker() {
     const strokeWidth = 8;
     const radius = (size - strokeWidth) / 2;
     const circumference = radius * 2 * Math.PI;
-    const offset = circumference - (percentage / 100) * circumference;
-    const clampedPercentage = Math.min(percentage, 100);
+    // If percentage > 100, fill the circle completely (offset = 0)
+    // Otherwise calculate normal offset
+    const offset = percentage > 100 ? 0 : circumference - (percentage / 100) * circumference;
+    // Show actual percentage in text, even if over 100%
+    const displayPercentage = Math.round(percentage);
 
     return (
       <div className="relative inline-flex items-center justify-center">
@@ -390,8 +393,11 @@ export default function TimeTracker() {
         </svg>
         {/* Percentage text in center */}
         <div className="absolute inset-0 flex items-center justify-center">
-          <span className="text-lg font-bold text-slate-900">
-            {Math.round(clampedPercentage)}%
+          <span 
+            className="text-lg font-bold"
+            style={{ color: displayPercentage > 100 ? '#d0335a' : '#0f172a' }}
+          >
+            {displayPercentage}%
           </span>
         </div>
       </div>
