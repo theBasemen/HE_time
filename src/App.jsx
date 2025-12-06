@@ -21,6 +21,9 @@ export default function TimeTracker() {
   const [isSavingTime, setIsSavingTime] = useState(false);
   const [justSavedLogId, setJustSavedLogId] = useState(null);
   const [deletingLogId, setDeletingLogId] = useState(null);
+  const [shouldAnimateLogs, setShouldAnimateLogs] = useState(false);
+  const previousDateRef = useRef(null);
+  const [previousDateKey, setPreviousDateKey] = useState(null);
   
   // Bottom Sheet States
   const [isBottomSheetOpen, setIsBottomSheetOpen] = useState(false);
@@ -31,8 +34,43 @@ export default function TimeTracker() {
   const [isEditModalClosing, setIsEditModalClosing] = useState(false);
   
   // Calendar Navigation State
-  const [selectedDate, setSelectedDate] = useState(new Date());
-  
+  // Initialize with today's date in UTC for consistent comparison with UTC timestamps
+  const [selectedDate, setSelectedDate] = useState(() => {
+    const today = new Date();
+    return new Date(Date.UTC(
+      today.getUTCFullYear(),
+      today.getUTCMonth(),
+      today.getUTCDate()
+    ));
+  });
+
+  // Track date changes to trigger log animations
+  useEffect(() => {
+    const currentDateKey = selectedDate.getTime();
+    // Only animate if date actually changed (not initial render)
+    if (previousDateRef.current !== null && previousDateRef.current !== currentDateKey) {
+      // Set animation immediately so logs start hidden
+      setShouldAnimateLogs(true);
+      // Use requestAnimationFrame to ensure browser registers the class change and starts animation
+      const rafId = requestAnimationFrame(() => {
+        // Force a reflow to ensure animation starts
+        void document.body.offsetHeight;
+        // Keep animation class long enough for staggered animations to complete
+        // Assuming max 20 items with 30ms delay each = 600ms + 200ms animation = 800ms
+        const timer = setTimeout(() => {
+          setShouldAnimateLogs(false);
+        }, 850); // Buffer for staggered animations
+        return () => clearTimeout(timer);
+      });
+      previousDateRef.current = currentDateKey;
+      return () => cancelAnimationFrame(rafId);
+    } else {
+      // First render or same date - no animation needed
+      previousDateRef.current = currentDateKey;
+      setShouldAnimateLogs(false);
+    }
+  }, [selectedDate]);
+
   // Helper function to close bottom sheet with animation
   const closeBottomSheet = () => {
     setIsBottomSheetClosing(true);
@@ -175,13 +213,18 @@ export default function TimeTracker() {
 
     setIsSavingTime(true);
 
-    // Use selectedDate for the date part, but keep current time
-    const timestamp = new Date(selectedDate);
+    // Use selectedDate for the date part (year, month, day) in UTC, but keep current time
+    // This ensures the date matches what admin panel shows (UTC-based)
     const now = new Date();
-    timestamp.setHours(now.getHours());
-    timestamp.setMinutes(now.getMinutes());
-    timestamp.setSeconds(now.getSeconds());
-    timestamp.setMilliseconds(now.getMilliseconds());
+    const timestamp = new Date(Date.UTC(
+      selectedDate.getUTCFullYear(),
+      selectedDate.getUTCMonth(),
+      selectedDate.getUTCDate(),
+      now.getUTCHours(),
+      now.getUTCMinutes(),
+      now.getUTCSeconds(),
+      now.getUTCMilliseconds()
+    ));
 
     const newLog = {
       project_id: selectedProjectForTimer.id,
@@ -257,6 +300,30 @@ export default function TimeTracker() {
 
   // --- HELPER FUNCTIONS ---
   
+  // Compare dates based on year, month, day using UTC
+  // Timestamps from database are in UTC, so we compare UTC date from timestamp
+  // with UTC date from selectedDate to match admin panel behavior
+  const isSameDate = (timestampString, selectedDateObj) => {
+    const timestampDate = new Date(timestampString);
+    const selectedDate = new Date(selectedDateObj);
+    
+    // Get UTC date components from timestamp (from database, stored in UTC)
+    const timestampYear = timestampDate.getUTCFullYear();
+    const timestampMonth = timestampDate.getUTCMonth();
+    const timestampDay = timestampDate.getUTCDate();
+    
+    // Get UTC date components from selectedDate
+    // Convert selectedDate to UTC for comparison
+    const selectedYear = selectedDate.getUTCFullYear();
+    const selectedMonth = selectedDate.getUTCMonth();
+    const selectedDay = selectedDate.getUTCDate();
+    
+    // Compare both in UTC to match admin panel behavior
+    return timestampYear === selectedYear && 
+           timestampMonth === selectedMonth && 
+           timestampDay === selectedDay;
+  };
+  
   // Convert decimal hours to hours:minutes format (e.g. 1.25 -> "1:15", 1.5 -> "1:30")
   const formatHoursToTime = (hours) => {
     const wholeHours = Math.floor(hours);
@@ -286,6 +353,51 @@ export default function TimeTracker() {
     );
   };
 
+  // Render circular progress graph
+  const renderCircularProgress = (percentage) => {
+    const size = 80;
+    const strokeWidth = 8;
+    const radius = (size - strokeWidth) / 2;
+    const circumference = radius * 2 * Math.PI;
+    const offset = circumference - (percentage / 100) * circumference;
+    const clampedPercentage = Math.min(percentage, 100);
+
+    return (
+      <div className="relative inline-flex items-center justify-center">
+        <svg width={size} height={size} className="transform -rotate-90">
+          {/* Background circle */}
+          <circle
+            cx={size / 2}
+            cy={size / 2}
+            r={radius}
+            stroke="rgb(226 232 240)" // slate-200
+            strokeWidth={strokeWidth}
+            fill="none"
+          />
+          {/* Progress circle */}
+          <circle
+            cx={size / 2}
+            cy={size / 2}
+            r={radius}
+            stroke="#d0335a" // accent color
+            strokeWidth={strokeWidth}
+            fill="none"
+            strokeLinecap="round"
+            strokeDasharray={circumference}
+            strokeDashoffset={offset}
+            className="transition-all duration-300 ease-out"
+          />
+        </svg>
+        {/* Percentage text in center */}
+        <div className="absolute inset-0 flex items-center justify-center">
+          <span className="text-lg font-bold text-slate-900">
+            {Math.round(clampedPercentage)}%
+          </span>
+        </div>
+      </div>
+    );
+  };
+
   // Get recently used projects (last 3-4 projects user logged time on)
   const getRecentlyUsedProjects = () => {
     if (!currentUser || logs.length === 0) return [];
@@ -309,9 +421,16 @@ export default function TimeTracker() {
   };
 
   // Format date for header
-  const formatDateHeader = () => {
-    const today = new Date();
-    return today.toLocaleDateString('da-DK', { weekday: 'long', day: 'numeric', month: 'long' });
+  // Date is stored in UTC, so we format it using UTC methods
+  const formatDateHeader = (date) => {
+    const d = new Date(date);
+    // Format using UTC date components to match what's stored in database
+    return d.toLocaleDateString('da-DK', { 
+      weekday: 'long', 
+      day: 'numeric', 
+      month: 'long',
+      timeZone: 'UTC'
+    });
   };
 
   // --- VIEWS ---
@@ -384,38 +503,48 @@ export default function TimeTracker() {
   // 1. HOME SCREEN
   const renderHome = () => {
     // Filter logs for selected date's registrations for current user
-    const selectedDateString = selectedDate.toDateString();
+    // Use isSameDate to compare dates correctly regardless of timezone
     const myLogsForDate = logs
       .filter(l => {
         const isMe = l.user_id === currentUser?.id;
-        const logDate = new Date(l.timestamp).toDateString();
-        return isMe && logDate === selectedDateString && l.hours !== null;
+        const logMatchesDate = isSameDate(l.timestamp, selectedDate);
+        return isMe && logMatchesDate && l.hours !== null;
       })
       .sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
 
     const dateTotal = myLogsForDate.reduce((sum, log) => sum + (log.hours || 0), 0);
     
     // Helper functions for date navigation
+    // Create dates in UTC to ensure correct comparison with UTC timestamps from database
     const goToPreviousDay = () => {
+      // Set animation state before changing date so logs start hidden
+      setShouldAnimateLogs(true);
       const newDate = new Date(selectedDate);
-      newDate.setDate(newDate.getDate() - 1);
+      // Use UTC methods to avoid timezone issues
+      newDate.setUTCDate(newDate.getUTCDate() - 1);
       setSelectedDate(newDate);
     };
     
     const goToNextDay = () => {
+      // Set animation state before changing date so logs start hidden
+      setShouldAnimateLogs(true);
       const newDate = new Date(selectedDate);
-      newDate.setDate(newDate.getDate() + 1);
+      // Use UTC methods to avoid timezone issues
+      newDate.setUTCDate(newDate.getUTCDate() + 1);
       setSelectedDate(newDate);
     };
     
-    const formatSelectedDate = () => {
-      const today = new Date().toDateString();
-      const yesterday = new Date(Date.now() - 86400000).toDateString();
-      const selectedDateString = selectedDate.toDateString();
-      
-      if (selectedDateString === today) return 'I dag';
-      if (selectedDateString === yesterday) return 'I går';
-      return selectedDate.toLocaleDateString('da-DK', { weekday: 'long', day: 'numeric', month: 'long' });
+    const goToToday = () => {
+      // Set animation state before changing date so logs start hidden
+      setShouldAnimateLogs(true);
+      const today = new Date();
+      // Set to start of today in UTC for consistent comparison
+      const utcToday = new Date(Date.UTC(
+        today.getUTCFullYear(),
+        today.getUTCMonth(),
+        today.getUTCDate()
+      ));
+      setSelectedDate(utcToday);
     };
 
     // Filter projects
@@ -450,12 +579,13 @@ export default function TimeTracker() {
               )}
             </button>
             <div className="absolute left-1/2 -translate-x-1/2">
-              <p className="text-xs text-slate-500 uppercase tracking-wider">{formatDateHeader()}</p>
+              <p className="text-sm font-semibold text-slate-900 uppercase tracking-wider">{formatDateHeader(selectedDate)}</p>
             </div>
             <button
               onClick={fetchData}
               disabled={isLoadingData}
-              className="p-2 text-slate-400 hover:text-slate-600 active:opacity-70 transition-colors disabled:opacity-50"
+              className="p-2 active:opacity-70 transition-colors disabled:opacity-50"
+              style={{ color: isLoadingData ? '#d0335a' : '#d0335a' }}
               title="Genindlæs data"
             >
               <RefreshCw size={20} className={isLoadingData ? 'animate-spin' : ''} />
@@ -468,24 +598,15 @@ export default function TimeTracker() {
           {/* Total Hours */}
           {dateTotal > 0 && (
             <div className="mb-6 bg-white rounded-2xl p-6 shadow-sm">
-              <div className="flex items-end justify-between mb-4">
+              <div className="flex items-center justify-between">
                 <div>
-                  <p className="text-xs text-slate-500 uppercase tracking-wider mb-1">Total</p>
-                  <p className="text-4xl font-bold text-slate-900">{formatHoursToTime(dateTotal)}</p>
+                  <p className="text-xs text-slate-500 uppercase tracking-wider mb-1">Total for dagen</p>
+                  <p className="text-6xl font-bold text-slate-900">{formatHoursToTime(dateTotal)}</p>
                 </div>
-                <div className="text-right">
-                  <p className="text-xs text-slate-500 uppercase tracking-wider mb-1">Arbejdsdag</p>
-                  <p className="text-2xl font-bold text-slate-900">
-                    {Math.round((dateTotal / 7.5) * 100)}%
-                  </p>
+                <div className="flex flex-col items-end">
+                  <p className="text-xs text-slate-500 uppercase tracking-wider mb-2">Arbejdsdag</p>
+                  {renderCircularProgress(Math.round((dateTotal / 7.5) * 100))}
                 </div>
-              </div>
-              {/* Progress Bar */}
-              <div className="w-full h-3 bg-slate-100 rounded-full overflow-hidden">
-                <div 
-                  className="h-full bg-blue-500 rounded-full transition-all duration-300 ease-out"
-                  style={{ width: `${Math.min((dateTotal / 7.5) * 100, 100)}%` }}
-                ></div>
               </div>
             </div>
           )}
@@ -498,18 +619,23 @@ export default function TimeTracker() {
               <p className="text-sm text-slate-400">Tryk på knappen nedenfor for at registrere tid</p>
             </div>
           ) : (
-            <div className="space-y-2">
-              {myLogsForDate.map(log => (
-                <div
-                  key={log.id}
-                  onClick={() => setEditingLog(log)}
-                  className={`
-                    bg-white rounded-xl p-4 shadow-sm transition-all cursor-pointer active:scale-[0.98]
-                    ${justSavedLogId === log.id ? 'ring-2 ring-blue-500 bg-blue-50' : ''}
-                    ${deletingLogId === log.id ? 'scale-out-fade-300' : ''}
-                    hover:bg-slate-50
-                  `}
-                >
+            <div className="space-y-2" key={`logs-${selectedDate.getTime()}`}>
+              {myLogsForDate.map((log, index) => {
+                // Determine if this log should be animated based on date change
+                const shouldAnimate = shouldAnimateLogs && previousDateRef.current !== null;
+                return (
+                  <div
+                    key={log.id}
+                    onClick={() => setEditingLog(log)}
+                    className={`
+                      bg-white rounded-xl p-4 shadow-sm transition-all cursor-pointer active:scale-[0.98]
+                      ${justSavedLogId === log.id ? 'ring-2 ring-blue-500 bg-blue-50' : ''}
+                      ${deletingLogId === log.id ? 'scale-out-fade-300' : ''}
+                      ${shouldAnimate ? 'fade-in-slide-up-200' : ''}
+                      hover:bg-slate-50
+                    `}
+                    style={shouldAnimate ? { animationDelay: `${index * 30}ms` } : {}}
+                  >
                   <div className="flex items-center justify-between">
                     <div className="flex items-center gap-3 flex-1">
                       {renderProjectColorDot(log.project_color, 'w-4 h-4')}
@@ -536,7 +662,8 @@ export default function TimeTracker() {
                     </div>
                   </div>
                 </div>
-              ))}
+                );
+              })}
             </div>
           )}
         </div>
@@ -610,7 +737,12 @@ export default function TimeTracker() {
             >
               <ChevronLeft size={24} />
             </button>
-            <p className="text-sm font-semibold text-slate-900">{formatSelectedDate()}</p>
+            <button
+              onClick={goToToday}
+              className="text-sm font-semibold text-slate-900 active:opacity-70 transition-opacity"
+            >
+              I dag
+            </button>
             <button
               onClick={goToNextDay}
               className="p-2 text-slate-400 hover:text-slate-600 active:opacity-70 transition-colors"
@@ -626,7 +758,8 @@ export default function TimeTracker() {
             setIsBottomSheetOpen(true);
             setBottomSheetStep('project');
           }}
-          className="absolute bottom-6 left-6 right-6 bg-blue-600 text-white rounded-2xl py-4 px-8 shadow-lg shadow-blue-200 font-bold text-lg active:scale-[0.98] transition-transform flex items-center justify-center gap-2 z-30"
+          className="absolute bottom-6 left-6 right-6 text-white rounded-2xl py-4 px-8 shadow-lg font-bold text-lg active:scale-[0.98] transition-transform flex items-center justify-center gap-2 z-30"
+          style={{ backgroundColor: '#d0335a', boxShadow: '0 10px 15px -3px rgba(208, 51, 90, 0.3), 0 4px 6px -2px rgba(208, 51, 90, 0.2)' }}
         >
           <Plus size={24} />
           Registrer Tid
