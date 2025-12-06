@@ -618,11 +618,11 @@ export default function TimeTracker() {
                 <img 
                   src={currentUser.avatar_url} 
                   alt={currentUser.name}
-                  className="w-10 h-10 rounded-full object-cover ring-2 ring-slate-200"
+                  className="w-12 h-12 rounded-full object-cover ring-2 ring-slate-200"
                 />
               ) : (
                 <div 
-                  className={`w-10 h-10 rounded-full ${currentUser?.colorClass || 'bg-gray-100 text-gray-700'} flex items-center justify-center text-sm font-bold ring-2 ring-slate-200`}
+                  className={`w-12 h-12 rounded-full ${currentUser?.colorClass || 'bg-gray-100 text-gray-700'} flex items-center justify-center text-base font-bold ring-2 ring-slate-200`}
                   style={currentUser?.color && !currentUser.color.includes('bg-') ? { backgroundColor: currentUser.color } : {}}
                 >
                   {currentUser?.initials}
@@ -683,9 +683,14 @@ export default function TimeTracker() {
           ) : myLogsForDate.length > 4 ? (
             // Traditional list view for more than 4 entries
             <div 
-              className={`flex-1 overflow-y-auto ${myLogsForDate.length > 6 ? '' : 'pb-32'}`} 
+              className={`overflow-y-auto ${myLogsForDate.length > 6 ? '' : 'pb-32'}`} 
               key={`logs-${selectedDate.getTime()}`}
-              style={{ WebkitOverflowScrolling: 'touch', touchAction: 'pan-y' }}
+              style={{ 
+                WebkitOverflowScrolling: 'touch', 
+                touchAction: 'pan-y',
+                maxHeight: 'calc(100vh - 280px)', // Account for header, total hours, navigation, and button
+                flexShrink: 1
+              }}
             >
               <div className="space-y-0">
               {myLogsForDate.map((log, index) => {
