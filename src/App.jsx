@@ -23,6 +23,7 @@ export default function TimeTracker() {
   const [deletingLogId, setDeletingLogId] = useState(null);
   const [shouldAnimateLogs, setShouldAnimateLogs] = useState(false);
   const previousDateRef = useRef(null);
+  const [currentTime, setCurrentTime] = useState(new Date());
   const [previousDateKey, setPreviousDateKey] = useState(null);
   
   // Bottom Sheet States
@@ -91,6 +92,14 @@ export default function TimeTracker() {
       setIsEditModalClosing(false);
     }, 200);
   };
+
+  // Update current time every minute for "time since last registration" display
+  useEffect(() => {
+    const interval = setInterval(() => {
+      setCurrentTime(new Date());
+    }, 60000); // Update every minute
+    return () => clearInterval(interval);
+  }, []);
 
   // --- INITIALIZATION ---
   useEffect(() => {
@@ -520,6 +529,42 @@ export default function TimeTracker() {
 
     const dateTotal = myLogsForDate.reduce((sum, log) => sum + (log.hours || 0), 0);
     
+    // Check if selected date is today
+    const isToday = () => {
+      const today = new Date();
+      const todayUTC = new Date(Date.UTC(
+        today.getUTCFullYear(),
+        today.getUTCMonth(),
+        today.getUTCDate()
+      ));
+      return selectedDate.getTime() === todayUTC.getTime();
+    };
+    
+    // Calculate time since last registration
+    const getTimeSinceLastRegistration = () => {
+      if (myLogsForDate.length === 0) return null;
+      
+      const lastLog = myLogsForDate[0]; // Already sorted by timestamp descending
+      const lastLogTime = new Date(lastLog.timestamp);
+      const diffMs = currentTime - lastLogTime;
+      
+      // Only return if time difference is positive (in the past)
+      if (diffMs <= 0) return null;
+      
+      const diffHours = Math.floor(diffMs / (1000 * 60 * 60));
+      const diffMinutes = Math.floor((diffMs % (1000 * 60 * 60)) / (1000 * 60));
+      
+      // Only return if time is greater than 0
+      if (diffHours === 0 && diffMinutes === 0) return null;
+      
+      return `${diffHours}:${diffMinutes.toString().padStart(2, '0')}`;
+    };
+    
+    // Check if current time is before 18:00
+    const isBefore1800 = () => {
+      return currentTime.getHours() < 18;
+    };
+    
     // Helper functions for date navigation
     // Create dates in UTC to ensure correct comparison with UTC timestamps from database
     const goToPreviousDay = () => {
@@ -584,8 +629,19 @@ export default function TimeTracker() {
                 </div>
               )}
             </button>
-            <div className="absolute left-1/2 -translate-x-1/2">
+            <div className="absolute left-1/2 -translate-x-1/2 text-center">
               <p className="text-sm font-semibold text-slate-900 uppercase tracking-wider">{formatDateHeader(selectedDate)}</p>
+              {(() => {
+                const timeSince = getTimeSinceLastRegistration();
+                if (isToday() && myLogsForDate.length > 0 && isBefore1800() && timeSince) {
+                  return (
+                    <p className="text-xs text-slate-500 mt-1">
+                      Tid siden sidste registrering: {timeSince}
+                    </p>
+                  );
+                }
+                return null;
+              })()}
             </div>
             <button
               onClick={fetchData}
