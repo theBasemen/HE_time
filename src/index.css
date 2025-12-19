@@ -118,3 +118,28 @@ body {
   transform: scale(0.95);
   animation: fadeInScale 400ms ease-out forwards;
 }
+
+/* New Log Entry Animation - opposite of scaleOutFade */
+@keyframes scaleInGrow {
+  from {
+    transform: scale(0.8);
+    opacity: 0;
+    max-height: 0;
+    margin-bottom: 0;
+    padding-top: 0;
+    padding-bottom: 0;
+  }
+  to {
+    transform: scale(1);
+    opacity: 1;
+    max-height: 200px;
+    margin-bottom: 0;
+    padding-top: 0;
+    padding-bottom: 0;
+  }
+}
+
+.scale-in-grow-300 {
+  animation: scaleInGrow 300ms ease-out forwards;
+  overflow: hidden;
+}

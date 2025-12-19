@@ -24,6 +24,8 @@ export default function TimeTracker() {
   const [shouldAnimateLogs, setShouldAnimateLogs] = useState(false);
   const previousDateRef = useRef(null);
   const [currentTime, setCurrentTime] = useState(new Date());
+  const [newLogAnimationId, setNewLogAnimationId] = useState(null);
+  const [pendingNewLogId, setPendingNewLogId] = useState(null); // Track new log before animation starts
   const [previousDateKey, setPreviousDateKey] = useState(null);
   
   // Bottom Sheet States
@@ -250,6 +252,8 @@ export default function TimeTracker() {
       id: tempId,
       ...newLog,
     };
+    // Add log to state immediately but don't animate yet - mark it as pending
+    setPendingNewLogId(tempId);
     setLogs(prev => [optimisticLog, ...prev]);
     setJustSavedLogId(tempId);
 
@@ -273,6 +277,18 @@ export default function TimeTracker() {
     // Reset and close bottom sheet
     setIsSavingTime(false);
     closeBottomSheet();
+    
+    // Start animations after bottom sheet has closed (200ms)
+    setTimeout(() => {
+      // Set the new log ID to trigger animation - this will make it grow in
+      setNewLogAnimationId(tempId);
+      setPendingNewLogId(null); // Clear pending state so animation can start
+      
+      // Clear animation after 300ms
+      setTimeout(() => {
+        setNewLogAnimationId(null);
+      }, 300);
+    }, 200); // Start after bottom sheet animation completes
   };
 
   const handleUpdateLog = async (id, newHours) => {
@@ -525,7 +541,7 @@ export default function TimeTracker() {
         const logMatchesDate = isSameDate(l.timestamp, selectedDate);
         return isMe && logMatchesDate && l.hours !== null;
       })
-      .sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
+      .sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp)); // Newest first (descending)
 
     const dateTotal = myLogsForDate.reduce((sum, log) => sum + (log.hours || 0), 0);
     
@@ -656,7 +672,7 @@ export default function TimeTracker() {
         </div>
 
         {/* Main Content - Selected Date's Logs */}
-        <div className="flex-1 flex flex-col overflow-hidden px-4 py-6">
+        <div className="flex-1 flex flex-col overflow-hidden px-4 py-6 pb-32">
           {/* Total Hours */}
           {dateTotal > 0 && (
             <div className="mb-6 bg-white rounded-2xl p-6 shadow-sm flex-shrink-0">
@@ -673,28 +689,29 @@ export default function TimeTracker() {
             </div>
           )}
 
-          {/* Logs List */}
-          {myLogsForDate.length === 0 ? (
-            <div className="bg-white rounded-2xl p-12 text-center flex-shrink-0">
-              <History size={48} className="mx-auto mb-4 text-slate-300" />
-              <p className="text-slate-400 font-medium mb-1">Ingen registreringer i dag</p>
-              <p className="text-sm text-slate-400">Tryk på knappen nedenfor for at registrere tid</p>
-            </div>
-          ) : myLogsForDate.length > 4 ? (
-            // Traditional list view for more than 4 entries
+            {/* Logs List */}
+            {myLogsForDate.length === 0 ? (
+              <div className="bg-white rounded-2xl p-12 text-center flex-shrink-0">
+                <History size={48} className="mx-auto mb-4 text-slate-300" />
+                <p className="text-slate-400 font-medium mb-1">Ingen registreringer i dag</p>
+                <p className="text-sm text-slate-400">Tryk på knappen nedenfor for at registrere tid</p>
+              </div>
+          ) : (
+            // List view for all entries
             <div 
-              className={`overflow-y-auto ${myLogsForDate.length > 6 ? '' : 'pb-32'}`} 
+              className="overflow-y-auto flex-1 min-h-0" 
               key={`logs-${selectedDate.getTime()}`}
               style={{ 
                 WebkitOverflowScrolling: 'touch', 
                 touchAction: 'pan-y',
-                maxHeight: 'calc(100vh - 280px)', // Account for header, total hours, navigation, and button
-                flexShrink: 1
+                marginBottom: '80px' // Reserve space for navigation (bottom-24 = 96px, navigation height ~64px)
               }}
             >
               <div className="space-y-0">
               {myLogsForDate.map((log, index) => {
                 const shouldAnimate = shouldAnimateLogs && previousDateRef.current !== null;
+                const isNewLog = newLogAnimationId === log.id;
+                const isNewLogHidden = pendingNewLogId === log.id; // New log is hidden until animation starts
                 return (
                   <div
                     key={log.id}
@@ -704,6 +721,8 @@ export default function TimeTracker() {
                       ${justSavedLogId === log.id ? 'bg-blue-50' : ''}
                       ${deletingLogId === log.id ? 'scale-out-fade-300' : ''}
                       ${shouldAnimate ? 'fade-in-slide-up-200' : ''}
+                      ${isNewLogHidden ? 'opacity-0 max-h-0 overflow-hidden' : ''}
+                      ${isNewLog ? 'scale-in-grow-300' : ''}
                       hover:bg-slate-50 active:bg-slate-100 transition-colors
                     `}
                     style={{ 
@@ -734,55 +753,7 @@ export default function TimeTracker() {
               })}
               </div>
             </div>
-          ) : (
-            // Card view for 4 or fewer entries
-            <div className="space-y-2 pb-32 flex-shrink-0" key={`logs-${selectedDate.getTime()}`}>
-              {myLogsForDate.map((log, index) => {
-                // Determine if this log should be animated based on date change
-                const shouldAnimate = shouldAnimateLogs && previousDateRef.current !== null;
-                return (
-                  <div
-                    key={log.id}
-                    onClick={() => setEditingLog(log)}
-                    className={`
-                      bg-white rounded-xl p-4 shadow-sm transition-all cursor-pointer active:scale-[0.98]
-                      ${justSavedLogId === log.id ? 'ring-2 ring-blue-500 bg-blue-50' : ''}
-                      ${deletingLogId === log.id ? 'scale-out-fade-300' : ''}
-                      ${shouldAnimate ? 'fade-in-slide-up-200' : ''}
-                      hover:bg-slate-50
-                    `}
-                    style={shouldAnimate ? { animationDelay: `${index * 30}ms` } : {}}
-                  >
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-3 flex-1">
-                      {renderProjectColorDot(log.project_color, 'w-4 h-4')}
-                      <div className="flex-1 min-w-0">
-                        <p className="font-semibold text-slate-900 truncate">{log.project_name}</p>
-                        <p className="text-xs text-slate-500">
-                          {new Date(log.timestamp).toLocaleTimeString('da-DK', {hour:'2-digit', minute:'2-digit'})}
-                        </p>
-                      </div>
-                    </div>
-                    <div className="flex items-center gap-3">
-                      <span className="text-lg font-bold text-slate-900">{formatHoursToTime(log.hours)}</span>
-                      <button
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          if(confirm("Er du sikker på du vil slette denne registrering?")) {
-                            deleteLog(log.id);
-                          }
-                        }}
-                        className="p-2 text-slate-400 hover:text-red-500 active:opacity-70 transition-colors"
-                      >
-                        <Trash2 size={18} />
-                      </button>
-                    </div>
-                  </div>
-                </div>
-                );
-              })}
-            </div>
-          )}
+            )}
         </div>
 
         {/* Edit Log Modal */}
