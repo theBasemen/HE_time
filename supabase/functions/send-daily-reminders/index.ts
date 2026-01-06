@@ -88,21 +88,24 @@ async function sendPushNotification(
 ): Promise<boolean> {
   try {
     // Use web-push library via esm.sh
-    const webPush = await import('https://esm.sh/web-push@3.6.6');
+    // Try different import methods for Deno compatibility
+    let webPush;
+    try {
+      const webPushModule = await import('https://esm.sh/web-push@3.6.6');
+      webPush = webPushModule.default || webPushModule;
+    } catch (importError) {
+      console.error('Failed to import web-push:', importError);
+      // Try alternative import
+      const webPushModule2 = await import('https://esm.sh/web-push@3.6.6?target=deno');
+      webPush = webPushModule2.default || webPushModule2;
+    }
     
-    const payload = JSON.stringify({
-      title,
-      body,
-      icon: '/he_logo.png',
-      badge: '/he_logo.png',
-      tag: 'time-reminder',
-    });
-    
-    // web-push uses default export
-    const webPushModule = webPush.default || webPush;
-    
-    if (!webPushModule || !webPushModule.sendNotification) {
-      console.error('web-push module not loaded correctly');
+    if (!webPush || typeof webPush.sendNotification !== 'function') {
+      console.error('web-push module not loaded correctly', {
+        hasDefault: !!webPushModule.default,
+        hasSendNotification: !!webPush?.sendNotification,
+        moduleKeys: Object.keys(webPushModule),
+      });
       return false;
     }
     
@@ -112,8 +115,36 @@ async function sendPushNotification(
       return false;
     }
     
-    await webPushModule.sendNotification(
-      subscription,
+    // Ensure subscription is a plain object (not a class instance)
+    // This fixes the "Object prototype may only be an Object or null" error
+    const subscriptionPlain = {
+      endpoint: String(subscription.endpoint),
+      keys: {
+        p256dh: String(subscription.keys?.p256dh || subscription.keys?.p256dh || ''),
+        auth: String(subscription.keys?.auth || subscription.keys?.auth || ''),
+      },
+    };
+    
+    // Validate keys exist
+    if (!subscriptionPlain.keys.p256dh || !subscriptionPlain.keys.auth) {
+      console.error('Missing subscription keys:', {
+        hasP256dh: !!subscriptionPlain.keys.p256dh,
+        hasAuth: !!subscriptionPlain.keys.auth,
+      });
+      return false;
+    }
+    
+    const payload = JSON.stringify({
+      title,
+      body,
+      icon: '/he_logo.png',
+      badge: '/he_logo.png',
+      tag: 'time-reminder',
+    });
+    
+    // Send notification
+    await webPush.sendNotification(
+      subscriptionPlain,
       payload,
       {
         vapidDetails: {
@@ -133,7 +164,8 @@ async function sendPushNotification(
       name: error.name,
       subscription: subscription ? { 
         endpoint: subscription.endpoint,
-        keys: subscription.keys ? 'present' : 'missing'
+        hasKeys: !!subscription.keys,
+        keysType: typeof subscription.keys,
       } : 'null',
     });
     
@@ -311,9 +343,24 @@ serve(async (req) => {
               }
               
               debugInfo[debugInfo.length - 1].subscriptionEndpoint = subscriptionObj.endpoint.substring(0, 50) + '...';
+              debugInfo[debugInfo.length - 1].subscriptionKeys = {
+                hasP256dh: !!subscriptionObj.keys?.p256dh,
+                hasAuth: !!subscriptionObj.keys?.auth,
+                p256dhLength: subscriptionObj.keys?.p256dh?.length || 0,
+                authLength: subscriptionObj.keys?.auth?.length || 0,
+              };
+              
+              // Create a clean subscription object to avoid prototype issues
+              const cleanSubscription = {
+                endpoint: subscriptionObj.endpoint,
+                keys: {
+                  p256dh: subscriptionObj.keys.p256dh,
+                  auth: subscriptionObj.keys.auth,
+                },
+              };
               
               const success = await sendPushNotification(
-                subscriptionObj,
+                cleanSubscription,
                 title,
                 body,
                 vapidPublicKey,
