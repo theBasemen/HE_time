@@ -27,7 +27,23 @@ export async function requestNotificationPermission() {
  * @returns {boolean}
  */
 export function isNotificationSupported() {
-  return 'Notification' in window && 'serviceWorker' in navigator && 'PushManager' in window;
+  // Check for basic notification support
+  const hasNotification = 'Notification' in window;
+  const hasServiceWorker = 'serviceWorker' in navigator;
+  const hasPushManager = 'PushManager' in window;
+  
+  // Log for debugging
+  console.log('Notification support check:', {
+    hasNotification,
+    hasServiceWorker,
+    hasPushManager,
+    userAgent: navigator.userAgent,
+    isStandalone: window.matchMedia('(display-mode: standalone)').matches || window.navigator.standalone === true,
+  });
+  
+  // On iOS, PushManager might not be available until app is installed as PWA
+  // But we should still show the button if basic notification support exists
+  return hasNotification && hasServiceWorker;
 }
 
 /**

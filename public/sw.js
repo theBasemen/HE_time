@@ -1,9 +1,21 @@
 // Service Worker for Push Notifications
-const CACHE_NAME = 'himmelstrup-time-v1';
+const CACHE_NAME = 'himmelstrup-time-v2';
 
 // Install event - cache static assets
 self.addEventListener('install', (event) => {
+  // Force update by skipping waiting
   self.skipWaiting();
+  
+  // Delete old caches
+  event.waitUntil(
+    caches.keys().then((cacheNames) => {
+      return Promise.all(
+        cacheNames
+          .filter((cacheName) => cacheName !== CACHE_NAME)
+          .map((cacheName) => caches.delete(cacheName))
+      );
+    })
+  );
 });
 
 // Activate event - clean up old caches

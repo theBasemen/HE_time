@@ -762,8 +762,8 @@ export default function TimeTracker() {
               })()}
             </div>
             <div className="flex items-center gap-2">
-              {/* Notification enable button */}
-              {isNotificationSupported() && (
+              {/* Notification enable button - Show if notifications are supported OR if user is on iOS */}
+              {(isNotificationSupported() || /iPhone|iPad|iPod/.test(navigator.userAgent)) && (
                 <button
                   onClick={handleEnableNotifications}
                   disabled={isEnablingNotifications || notificationPermissionAsked}
