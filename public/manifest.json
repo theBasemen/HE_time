@@ -1,0 +1,19 @@
+{
+  "name": "Himmelstrup Time Tracker",
+  "short_name": "HE Time",
+  "description": "Tidsregistrerings app for Himmelstrup",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#F2F2F7",
+  "theme_color": "#d0335a",
+  "orientation": "portrait",
+  "icons": [
+    {
+      "src": "/he_logo.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ]
+}
+

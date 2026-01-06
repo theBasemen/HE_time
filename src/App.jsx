@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Plus, Trash2, X, ChevronRight, ChevronLeft, History, Calendar, Clock, CheckCircle2, RefreshCw } from 'lucide-react';
 import { supabase } from './lib/supabase';
+import { initializePushNotifications, getVapidPublicKey, isNotificationSupported } from './lib/notifications';
 
 export default function TimeTracker() {
   // --- STATE ---
@@ -27,6 +28,9 @@ export default function TimeTracker() {
   const [newLogAnimationId, setNewLogAnimationId] = useState(null);
   const [pendingNewLogId, setPendingNewLogId] = useState(null); // Track new log before animation starts
   const [previousDateKey, setPreviousDateKey] = useState(null);
+  
+  // Notification States
+  const [notificationPermissionAsked, setNotificationPermissionAsked] = useState(false);
   
   // Bottom Sheet States
   const [isBottomSheetOpen, setIsBottomSheetOpen] = useState(false);
@@ -107,6 +111,12 @@ export default function TimeTracker() {
   useEffect(() => {
     fetchUsers();
     
+    // Check if notification permission has been asked before
+    const hasAskedBefore = localStorage.getItem('he_notification_permission_asked');
+    if (hasAskedBefore) {
+      setNotificationPermissionAsked(true);
+    }
+    
     const savedUserId = localStorage.getItem('he_user_id');
     
     if (savedUserId) {
@@ -115,6 +125,28 @@ export default function TimeTracker() {
                 setCurrentUser(user);
                 setView('home');
                 fetchData();
+                
+                // Initialize push notifications if supported and permission hasn't been asked
+                if (isNotificationSupported() && !notificationPermissionAsked) {
+                  getVapidPublicKey()
+                    .then(vapidPublicKey => {
+                      return initializePushNotifications(user.id, vapidPublicKey);
+                    })
+                    .then(success => {
+                      if (success) {
+                        localStorage.setItem('he_notification_permission_asked', 'true');
+                        setNotificationPermissionAsked(true);
+                      } else {
+                        localStorage.setItem('he_notification_permission_asked', 'true');
+                        setNotificationPermissionAsked(true);
+                      }
+                    })
+                    .catch(error => {
+                      console.error('Failed to initialize push notifications:', error);
+                      localStorage.setItem('he_notification_permission_asked', 'true');
+                      setNotificationPermissionAsked(true);
+                    });
+                }
             } else {
                 localStorage.removeItem('he_user_id');
                 setView('login');
@@ -199,6 +231,30 @@ export default function TimeTracker() {
       setCurrentUser(user);
       setView('home');
       fetchData();
+      
+      // Initialize push notifications if supported and permission hasn't been asked
+      if (isNotificationSupported() && !notificationPermissionAsked) {
+        const hasAskedBefore = localStorage.getItem('he_notification_permission_asked');
+        if (!hasAskedBefore) {
+          try {
+            const vapidPublicKey = await getVapidPublicKey();
+            const success = await initializePushNotifications(user.id, vapidPublicKey);
+            if (success) {
+              localStorage.setItem('he_notification_permission_asked', 'true');
+              setNotificationPermissionAsked(true);
+            } else {
+              // User denied permission
+              localStorage.setItem('he_notification_permission_asked', 'true');
+              setNotificationPermissionAsked(true);
+            }
+          } catch (error) {
+            console.error('Failed to initialize push notifications:', error);
+            // Don't show error to user, just log it
+          }
+        } else {
+          setNotificationPermissionAsked(true);
+        }
+      }
   };
 
   const handleLogout = () => {
