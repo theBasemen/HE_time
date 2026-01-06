@@ -300,7 +300,7 @@ export default function TimeTracker() {
         localStorage.setItem('he_notification_permission_asked', 'true');
         setNotificationPermissionAsked(true);
         setHasSubscription(true);
-        alert('Notifikationer er nu aktiveret! Du vil modtage påmindelser kl. 17:00 hvis du ikke har registreret mindst 6 timer.');
+        alert('Du modtager nu notifikationer fra Himmelstrup Events');
       } else {
         throw new Error('Kunne ikke aktivere notifikationer. Tjek om du har givet tilladelse.');
       }

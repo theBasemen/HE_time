@@ -1,36 +1,14 @@
--- Create table for storing push notification subscriptions
-CREATE TABLE IF NOT EXISTS he_push_subscriptions (
-  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  user_id UUID NOT NULL REFERENCES he_time_users(id) ON DELETE CASCADE,
-  subscription JSONB NOT NULL,
-  created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-  updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
-);
+-- Fix RLS policies for he_push_subscriptions
+-- The app uses anonymous key, not authenticated users, so we need to allow inserts
+-- based on user_id existing in he_time_users table
 
--- Create index on user_id for faster lookups
-CREATE INDEX IF NOT EXISTS idx_push_subscriptions_user_id ON he_push_subscriptions(user_id);
+-- Drop existing policies
+DROP POLICY IF EXISTS "Users can insert their own subscriptions" ON he_push_subscriptions;
+DROP POLICY IF EXISTS "Users can update their own subscriptions" ON he_push_subscriptions;
+DROP POLICY IF EXISTS "Users can view their own subscriptions" ON he_push_subscriptions;
+DROP POLICY IF EXISTS "Service role can delete subscriptions" ON he_push_subscriptions;
 
--- Create function to update updated_at timestamp
-CREATE OR REPLACE FUNCTION update_updated_at_column()
-RETURNS TRIGGER AS $$
-BEGIN
-  NEW.updated_at = NOW();
-  RETURN NEW;
-END;
-$$ LANGUAGE plpgsql;
-
--- Create trigger to automatically update updated_at
-CREATE TRIGGER update_push_subscriptions_updated_at
-  BEFORE UPDATE ON he_push_subscriptions
-  FOR EACH ROW
-  EXECUTE FUNCTION update_updated_at_column();
-
--- Add RLS (Row Level Security) policies
--- Note: Edge Function uses service role key which bypasses RLS
--- The app uses anonymous key, so policies check if user_id exists in he_time_users
-
-ALTER TABLE he_push_subscriptions ENABLE ROW LEVEL SECURITY;
-
+-- Create new policies that work with anonymous key
 -- Allow insert if user_id exists in he_time_users and user is active
 CREATE POLICY "Allow insert for valid users"
   ON he_push_subscriptions

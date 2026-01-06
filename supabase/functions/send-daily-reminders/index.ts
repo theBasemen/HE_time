@@ -130,11 +130,16 @@ async function sendPushNotification(
     console.error('Error details:', {
       message: error.message,
       stack: error.stack,
-      subscription: subscription ? { endpoint: subscription.endpoint } : 'null',
+      name: error.name,
+      subscription: subscription ? { 
+        endpoint: subscription.endpoint,
+        keys: subscription.keys ? 'present' : 'missing'
+      } : 'null',
     });
-    // If subscription is invalid, we might want to delete it
-    // But for now, just log the error
-    return false;
+    
+    // Re-throw error with more details for better debugging
+    const errorMessage = error.message || error.name || 'Unknown error';
+    throw new Error(`Push notification failed: ${errorMessage}`);
   }
 }
 
@@ -285,9 +290,27 @@ serve(async (req) => {
                 } catch (e) {
                   errors.push(`Invalid subscription JSON for user ${user.id}: ${e.message}`);
                   debugInfo[debugInfo.length - 1].subscriptionParseError = e.message;
+                  notificationsFailed++;
                   continue;
                 }
               }
+              
+              // Validate subscription structure
+              if (!subscriptionObj || !subscriptionObj.endpoint) {
+                errors.push(`Invalid subscription structure for user ${user.id}: missing endpoint`);
+                debugInfo[debugInfo.length - 1].subscriptionInvalid = 'missing endpoint';
+                notificationsFailed++;
+                continue;
+              }
+              
+              if (!subscriptionObj.keys || !subscriptionObj.keys.p256dh || !subscriptionObj.keys.auth) {
+                errors.push(`Invalid subscription structure for user ${user.id}: missing keys`);
+                debugInfo[debugInfo.length - 1].subscriptionInvalid = 'missing keys';
+                notificationsFailed++;
+                continue;
+              }
+              
+              debugInfo[debugInfo.length - 1].subscriptionEndpoint = subscriptionObj.endpoint.substring(0, 50) + '...';
               
               const success = await sendPushNotification(
                 subscriptionObj,
@@ -303,13 +326,17 @@ serve(async (req) => {
                 debugInfo[debugInfo.length - 1].notificationSent = true;
               } else {
                 notificationsFailed++;
-                errors.push(`Failed to send notification to user ${user.id}`);
+                errors.push(`Failed to send notification to user ${user.id} - sendNotification returned false`);
                 debugInfo[debugInfo.length - 1].notificationFailed = true;
               }
             } catch (pushError) {
               notificationsFailed++;
-              errors.push(`Push error for user ${user.id}: ${pushError.message}`);
-              debugInfo[debugInfo.length - 1].pushError = pushError.message;
+              const errorMessage = pushError.message || pushError.toString() || 'Unknown error';
+              errors.push(`Push error for user ${user.id}: ${errorMessage}`);
+              debugInfo[debugInfo.length - 1].pushError = errorMessage;
+              if (pushError.stack) {
+                debugInfo[debugInfo.length - 1].pushErrorStack = pushError.stack.substring(0, 300);
+              }
             }
           }
         }
