@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Plus, Trash2, X, ChevronRight, ChevronLeft, History, Calendar, Clock, CheckCircle2, RefreshCw } from 'lucide-react';
+import { Plus, Trash2, X, ChevronRight, ChevronLeft, History, Calendar, Clock, CheckCircle2, RefreshCw, Bell, BellOff } from 'lucide-react';
 import { supabase } from './lib/supabase';
-import { initializePushNotifications, getVapidPublicKey, isNotificationSupported } from './lib/notifications';
+import { initializePushNotifications, getVapidPublicKey, isNotificationSupported, hasPushSubscription } from './lib/notifications';
 
 export default function TimeTracker() {
   // --- STATE ---
@@ -31,6 +31,9 @@ export default function TimeTracker() {
   
   // Notification States
   const [notificationPermissionAsked, setNotificationPermissionAsked] = useState(false);
+  const [notificationError, setNotificationError] = useState(null);
+  const [isEnablingNotifications, setIsEnablingNotifications] = useState(false);
+  const [hasSubscription, setHasSubscription] = useState(false);
   
   // Bottom Sheet States
   const [isBottomSheetOpen, setIsBottomSheetOpen] = useState(false);
@@ -126,6 +129,14 @@ export default function TimeTracker() {
                 setView('home');
                 fetchData();
                 
+                // Check if user already has a subscription
+                hasPushSubscription(user.id).then(hasSub => {
+                  setHasSubscription(hasSub);
+                  if (hasSub) {
+                    setNotificationPermissionAsked(true);
+                  }
+                });
+                
                 // Initialize push notifications if supported and permission hasn't been asked
                 if (isNotificationSupported() && !notificationPermissionAsked) {
                   getVapidPublicKey()
@@ -136,6 +147,7 @@ export default function TimeTracker() {
                       if (success) {
                         localStorage.setItem('he_notification_permission_asked', 'true');
                         setNotificationPermissionAsked(true);
+                        setHasSubscription(true);
                       } else {
                         localStorage.setItem('he_notification_permission_asked', 'true');
                         setNotificationPermissionAsked(true);
@@ -143,8 +155,8 @@ export default function TimeTracker() {
                     })
                     .catch(error => {
                       console.error('Failed to initialize push notifications:', error);
-                      localStorage.setItem('he_notification_permission_asked', 'true');
-                      setNotificationPermissionAsked(true);
+                      // Don't set permissionAsked to true if there was an error
+                      // This allows user to try again manually
                     });
                 }
             } else {
@@ -265,6 +277,40 @@ export default function TimeTracker() {
         setProjects([]);
         setLogs([]);
       }
+  };
+
+  const handleEnableNotifications = async () => {
+    if (!currentUser || !currentUser.id) {
+      alert('Fejl: Ingen bruger valgt');
+      return;
+    }
+
+    setIsEnablingNotifications(true);
+    setNotificationError(null);
+
+    try {
+      if (!isNotificationSupported()) {
+        throw new Error('Din browser understøtter ikke push-notifikationer. Prøv Chrome, Firefox eller Safari (iOS 16.4+).');
+      }
+
+      const vapidPublicKey = await getVapidPublicKey();
+      const success = await initializePushNotifications(currentUser.id, vapidPublicKey);
+      
+      if (success) {
+        localStorage.setItem('he_notification_permission_asked', 'true');
+        setNotificationPermissionAsked(true);
+        setHasSubscription(true);
+        alert('Notifikationer er nu aktiveret! Du vil modtage påmindelser kl. 17:00 hvis du ikke har registreret mindst 6 timer.');
+      } else {
+        throw new Error('Kunne ikke aktivere notifikationer. Tjek om du har givet tilladelse.');
+      }
+    } catch (error) {
+      console.error('Failed to enable notifications:', error);
+      setNotificationError(error.message || 'Ukendt fejl ved aktivering af notifikationer');
+      alert(`Fejl: ${error.message || 'Kunne ikke aktivere notifikationer. Tjek browser console for detaljer.'}`);
+    } finally {
+      setIsEnablingNotifications(false);
+    }
   };
 
   const handleLogTime = async () => {
@@ -715,15 +761,33 @@ export default function TimeTracker() {
                 return null;
               })()}
             </div>
-            <button
-              onClick={fetchData}
-              disabled={isLoadingData}
-              className="p-2 active:opacity-70 transition-colors disabled:opacity-50"
-              style={{ color: isLoadingData ? '#d0335a' : '#d0335a' }}
-              title="Genindlæs data"
-            >
-              <RefreshCw size={20} className={isLoadingData ? 'animate-spin' : ''} />
-            </button>
+            <div className="flex items-center gap-2">
+              {/* Notification enable button */}
+              {isNotificationSupported() && (
+                <button
+                  onClick={handleEnableNotifications}
+                  disabled={isEnablingNotifications || notificationPermissionAsked}
+                  className="p-2 active:opacity-70 transition-colors disabled:opacity-50"
+                  style={{ color: notificationPermissionAsked ? '#10b981' : '#d0335a' }}
+                  title={notificationPermissionAsked ? 'Notifikationer er aktiveret' : 'Aktiver push-notifikationer'}
+                >
+                  {notificationPermissionAsked ? (
+                    <Bell size={20} />
+                  ) : (
+                    <BellOff size={20} />
+                  )}
+                </button>
+              )}
+              <button
+                onClick={fetchData}
+                disabled={isLoadingData}
+                className="p-2 active:opacity-70 transition-colors disabled:opacity-50"
+                style={{ color: isLoadingData ? '#d0335a' : '#d0335a' }}
+                title="Genindlæs data"
+              >
+                <RefreshCw size={20} className={isLoadingData ? 'animate-spin' : ''} />
+              </button>
+            </div>
           </div>
         </div>
 

@@ -116,6 +116,31 @@ export async function savePushSubscription(userId, subscription) {
 }
 
 /**
+ * Check if user has an active push subscription
+ * @param {string} userId
+ * @returns {Promise<boolean>}
+ */
+export async function hasPushSubscription(userId) {
+  try {
+    const { data, error } = await supabase
+      .from('he_push_subscriptions')
+      .select('id')
+      .eq('user_id', userId)
+      .limit(1);
+    
+    if (error) {
+      console.error('Error checking subscription:', error);
+      return false;
+    }
+    
+    return data && data.length > 0;
+  } catch (error) {
+    console.error('Error checking subscription:', error);
+    return false;
+  }
+}
+
+/**
  * Initialize push notifications for a user
  * @param {string} userId
  * @param {string} vapidPublicKey - VAPID public key from Supabase
@@ -124,7 +149,7 @@ export async function savePushSubscription(userId, subscription) {
 export async function initializePushNotifications(userId, vapidPublicKey) {
   if (!isNotificationSupported()) {
     console.warn('Push notifications are not supported in this browser');
-    return false;
+    throw new Error('Push notifications are not supported in this browser');
   }
 
   try {
@@ -132,7 +157,7 @@ export async function initializePushNotifications(userId, vapidPublicKey) {
     const permission = await requestNotificationPermission();
     if (permission !== 'granted') {
       console.log('Notification permission denied');
-      return false;
+      throw new Error('Notification permission was denied. Please enable notifications in your browser settings.');
     }
 
     // Register service worker
@@ -150,7 +175,7 @@ export async function initializePushNotifications(userId, vapidPublicKey) {
     return true;
   } catch (error) {
     console.error('Failed to initialize push notifications:', error);
-    return false;
+    throw error;
   }
 }
 

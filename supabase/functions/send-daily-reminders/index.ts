@@ -101,6 +101,17 @@ async function sendPushNotification(
     // web-push uses default export
     const webPushModule = webPush.default || webPush;
     
+    if (!webPushModule || !webPushModule.sendNotification) {
+      console.error('web-push module not loaded correctly');
+      return false;
+    }
+    
+    // Validate subscription object
+    if (!subscription || !subscription.endpoint) {
+      console.error('Invalid subscription object:', subscription);
+      return false;
+    }
+    
     await webPushModule.sendNotification(
       subscription,
       payload,
@@ -116,6 +127,11 @@ async function sendPushNotification(
     return true;
   } catch (error) {
     console.error('Error sending push notification:', error);
+    console.error('Error details:', {
+      message: error.message,
+      stack: error.stack,
+      subscription: subscription ? { endpoint: subscription.endpoint } : 'null',
+    });
     // If subscription is invalid, we might want to delete it
     // But for now, just log the error
     return false;
@@ -200,6 +216,7 @@ serve(async (req) => {
     let notificationsSent = 0;
     let notificationsFailed = 0;
     const errors: string[] = [];
+    const debugInfo: any[] = [];
     
     // Process each user
     for (const user of users) {
@@ -214,11 +231,20 @@ serve(async (req) => {
         
         if (logsError) {
           errors.push(`Error fetching logs for user ${user.id}: ${logsError.message}`);
+          debugInfo.push({ userId: user.id, userName: user.name, error: logsError.message });
           continue;
         }
         
         // Calculate total hours registered today
         const totalHours = logs?.reduce((sum, log) => sum + (log.hours || 0), 0) || 0;
+        
+        debugInfo.push({
+          userId: user.id,
+          userName: user.name,
+          totalHours,
+          needsReminder: totalHours < 6,
+          logsCount: logs?.length || 0,
+        });
         
         // Only send notification if user has registered less than 6 hours
         if (totalHours < 6) {
@@ -230,11 +256,15 @@ serve(async (req) => {
           
           if (subsError) {
             errors.push(`Error fetching subscriptions for user ${user.id}: ${subsError.message}`);
+            debugInfo[debugInfo.length - 1].subscriptionError = subsError.message;
             continue;
           }
           
+          debugInfo[debugInfo.length - 1].subscriptionsCount = subscriptions?.length || 0;
+          
           if (!subscriptions || subscriptions.length === 0) {
             // User has no push subscriptions, skip
+            debugInfo[debugInfo.length - 1].skipped = 'No push subscriptions';
             continue;
           }
           
@@ -246,26 +276,47 @@ serve(async (req) => {
           const body = `Du har kun registreret ${hoursDisplay} timer i dag. Husk at få det hele med i runde tal. Firmarelevante møder og telefonsamtaler registreres som Administration`;
           
           for (const sub of subscriptions) {
-            const success = await sendPushNotification(
-              sub.subscription,
-              title,
-              body,
-              vapidPublicKey,
-              vapidPrivateKey,
-              vapidSubject
-            );
-            
-            if (success) {
-              notificationsSent++;
-            } else {
+            try {
+              // Ensure subscription is a proper object (not JSONB string)
+              let subscriptionObj = sub.subscription;
+              if (typeof subscriptionObj === 'string') {
+                try {
+                  subscriptionObj = JSON.parse(subscriptionObj);
+                } catch (e) {
+                  errors.push(`Invalid subscription JSON for user ${user.id}: ${e.message}`);
+                  debugInfo[debugInfo.length - 1].subscriptionParseError = e.message;
+                  continue;
+                }
+              }
+              
+              const success = await sendPushNotification(
+                subscriptionObj,
+                title,
+                body,
+                vapidPublicKey,
+                vapidPrivateKey,
+                vapidSubject
+              );
+              
+              if (success) {
+                notificationsSent++;
+                debugInfo[debugInfo.length - 1].notificationSent = true;
+              } else {
+                notificationsFailed++;
+                errors.push(`Failed to send notification to user ${user.id}`);
+                debugInfo[debugInfo.length - 1].notificationFailed = true;
+              }
+            } catch (pushError) {
               notificationsFailed++;
-              errors.push(`Failed to send notification to user ${user.id}`);
+              errors.push(`Push error for user ${user.id}: ${pushError.message}`);
+              debugInfo[debugInfo.length - 1].pushError = pushError.message;
             }
           }
         }
       } catch (error) {
         errors.push(`Error processing user ${user.id}: ${error.message}`);
         notificationsFailed++;
+        debugInfo.push({ userId: user.id, error: error.message });
       }
     }
     
@@ -278,6 +329,7 @@ serve(async (req) => {
         notificationsSent,
         notificationsFailed,
         errors: errors.length > 0 ? errors : undefined,
+        debug: debugInfo,
       }),
       {
         status: 200,
