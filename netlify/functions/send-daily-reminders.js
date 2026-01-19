@@ -66,4 +66,4 @@ const handler = async (event, context) => {
 
 // Schedule: Monday-Friday at 16:00 UTC (17:00 CET / 18:00 CEST)
 // Cron format: minute hour day-of-month month day-of-week
-export const scheduledHandler = schedule('0 16 * * 1-5', handler);
+export const handler = schedule('0 16 * * 1-5', handler);
