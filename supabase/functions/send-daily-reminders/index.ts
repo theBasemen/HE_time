@@ -3,6 +3,7 @@
 
 import { serve } from 'https://deno.land/std@0.168.0/http/server.ts';
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
+import * as webpush from 'jsr:@negrel/webpush@0.5.0';
 
 // Danish holidays (fixed dates)
 const DANISH_HOLIDAYS: Array<{ month: number; day: number; name: string }> = [
@@ -77,7 +78,7 @@ function isWorkday(date: Date): boolean {
   return !isHoliday;
 }
 
-// Send push notification using Deno-compatible webpush library
+// Send push notification using @negrel/webpush (Deno-compatible)
 async function sendPushNotification(
   subscription: any,
   title: string,
@@ -98,16 +99,12 @@ async function sendPushNotification(
       return false;
     }
     
-    // Use negrel/webpush - Deno-compatible web push library
-    // This library uses Web Crypto API instead of Node's crypto.ECDH
-    const { WebPush } = await import('https://deno.land/x/webpush@1.0.0/mod.ts');
-    
     // Create subscription object
     const subscriptionObj = {
-      endpoint: subscription.endpoint,
+      endpoint: String(subscription.endpoint),
       keys: {
-        p256dh: subscription.keys.p256dh,
-        auth: subscription.keys.auth,
+        p256dh: String(subscription.keys.p256dh),
+        auth: String(subscription.keys.auth),
       },
     };
     
@@ -119,17 +116,15 @@ async function sendPushNotification(
       tag: 'time-reminder',
     });
     
-    // Create WebPush instance with VAPID keys
-    const webpush = new WebPush({
-      vapid: {
+    // Send notification using @negrel/webpush
+    await webpush.sendNotification(subscriptionObj, {
+      payload: payload,
+      vapidDetails: {
         subject: vapidSubject,
         publicKey: vapidPublicKey,
         privateKey: vapidPrivateKey,
       },
     });
-    
-    // Send notification
-    await webpush.send(subscriptionObj, payload);
     
     return true;
   } catch (error) {

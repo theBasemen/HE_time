@@ -3,8 +3,9 @@
 
 import { serve } from 'https://deno.land/std@0.168.0/http/server.ts';
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
+import * as webpush from 'jsr:@negrel/webpush@0.5.0';
 
-// Send push notification using web-push library
+// Send push notification using @negrel/webpush (Deno-compatible)
 async function sendPushNotification(
   subscription: any,
   title: string,
@@ -25,46 +26,7 @@ async function sendPushNotification(
       return false;
     }
     
-    // Try importing web-push with Deno target
-    // Use dynamic import to handle potential errors
-    let webPush: any;
-    
-    try {
-      // Try esm.sh with deno target
-      const webPushModule = await import('https://esm.sh/web-push@3.6.6?target=deno&no-check');
-      webPush = webPushModule.default || webPushModule;
-      
-      // If default doesn't have sendNotification, try accessing it directly
-      if (!webPush || typeof webPush.sendNotification !== 'function') {
-        if (webPushModule.sendNotification) {
-          webPush = webPushModule;
-        } else if (webPushModule.default && typeof webPushModule.default.sendNotification === 'function') {
-          webPush = webPushModule.default;
-        }
-      }
-    } catch (importError) {
-      console.error('Failed to import web-push:', importError);
-      // Fallback: try standard import
-      try {
-        const webPushModule2 = await import('https://esm.sh/web-push@3.6.6?no-check');
-        webPush = webPushModule2.default || webPushModule2;
-      } catch (importError2) {
-        console.error('All import attempts failed:', importError, importError2);
-        throw new Error(`Could not load web-push library: ${importError.message}`);
-      }
-    }
-    
-    if (!webPush || typeof webPush.sendNotification !== 'function') {
-      console.error('web-push module not loaded correctly', {
-        hasWebPush: !!webPush,
-        hasSendNotification: !!webPush?.sendNotification,
-        type: typeof webPush,
-        keys: webPush ? Object.keys(webPush) : [],
-      });
-      throw new Error('web-push.sendNotification is not a function');
-    }
-    
-    // Create subscription object - ensure it's a plain object
+    // Create subscription object
     const subscriptionObj = {
       endpoint: String(subscription.endpoint),
       keys: {
@@ -87,28 +49,17 @@ async function sendPushNotification(
       hasAuth: !!subscriptionObj.keys.auth,
     });
     
-    // Send notification
-    // Wrap in try-catch to handle crypto.ECDH errors gracefully
-    try {
-      await webPush.sendNotification(
-        subscriptionObj,
-        payload,
-        {
-          vapidDetails: {
-            subject: vapidSubject,
-            publicKey: vapidPublicKey,
-            privateKey: vapidPrivateKey,
-          },
-        }
-      );
-      return true;
-    } catch (sendError) {
-      // If we get crypto.ECDH error, provide helpful message
-      if (sendError.message && sendError.message.includes('ECDH')) {
-        throw new Error('crypto.ECDH not supported in Deno runtime. Consider using a different approach or library.');
-      }
-      throw sendError;
-    }
+    // Send notification using @negrel/webpush
+    await webpush.sendNotification(subscriptionObj, {
+      payload: payload,
+      vapidDetails: {
+        subject: vapidSubject,
+        publicKey: vapidPublicKey,
+        privateKey: vapidPrivateKey,
+      },
+    });
+    
+    return true;
   } catch (error) {
     console.error('Error sending push notification:', error);
     console.error('Error details:', {
