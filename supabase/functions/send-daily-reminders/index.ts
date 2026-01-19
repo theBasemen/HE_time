@@ -129,12 +129,21 @@ async function sendPushNotification(
     // Subscribe to get PushSubscriber
     const subscriber = appServer.subscribe(subscriptionObj);
     
-    // Send notification using pushMessage with JSON payload
-    // Convert payload to JSON string
-    const payloadString = JSON.stringify(notificationPayload);
-    await subscriber.pushMessage(payloadString, {
-      ttl: 86400, // 24 hours
-    });
+    // Try using pushTextMessage first (simpler, may avoid offset errors)
+    // If that doesn't work, fall back to pushMessage with JSON
+    try {
+      // Use pushTextMessage with just the body text
+      await subscriber.pushTextMessage(body, {
+        ttl: 86400, // 24 hours
+      });
+    } catch (textError) {
+      // If pushTextMessage fails, try pushMessage with JSON payload
+      console.log('pushTextMessage failed, trying pushMessage with JSON:', textError.message);
+      const payloadString = JSON.stringify(notificationPayload);
+      await subscriber.pushMessage(payloadString, {
+        ttl: 86400, // 24 hours
+      });
+    }
     
     return true;
   } catch (error) {
