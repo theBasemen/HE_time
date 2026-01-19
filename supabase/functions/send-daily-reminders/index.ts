@@ -1,6 +1,6 @@
 // Supabase Edge Function: Send Daily Reminders
 // Native Web Push implementation - FIXED for Apple aes128gcm
-// Sends push notifications at 17:00 to users who haven't registered at least 6 hours
+// Sends push notifications at 17:00 to users who haven't registered any time (0 hours) on a workday
 
 import { serve } from 'https://deno.land/std@0.168.0/http/server.ts';
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
