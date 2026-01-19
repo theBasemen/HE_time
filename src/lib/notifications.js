@@ -92,19 +92,37 @@ export async function subscribeToPush(registration, vapidPublicKey) {
  * @returns {Promise<void>}
  */
 export async function savePushSubscription(userId, subscription) {
+  console.log('Saving push subscription for user:', userId);
+  
+  // Convert subscription to JSON format
+  const subscriptionJson = subscription.toJSON();
+  console.log('Subscription JSON:', {
+    endpoint: subscriptionJson.endpoint?.substring(0, 50) + '...',
+    hasKeys: !!subscriptionJson.keys,
+    hasP256dh: !!subscriptionJson.keys?.p256dh,
+    hasAuth: !!subscriptionJson.keys?.auth,
+  });
+
   const subscriptionData = {
     user_id: userId,
-    subscription: subscription.toJSON(),
+    subscription: subscriptionJson,
   };
 
   // Check if subscription already exists for this user
-  const { data: existing } = await supabase
+  // Use maybeSingle() instead of single() to avoid errors when no subscription exists
+  const { data: existing, error: checkError } = await supabase
     .from('he_push_subscriptions')
     .select('id')
     .eq('user_id', userId)
-    .single();
+    .maybeSingle();
+
+  if (checkError && checkError.code !== 'PGRST116') { // PGRST116 = no rows returned
+    console.error('Error checking for existing subscription:', checkError);
+    throw checkError;
+  }
 
   if (existing) {
+    console.log('Updating existing subscription:', existing.id);
     // Update existing subscription
     const { error } = await supabase
       .from('he_push_subscriptions')
@@ -118,16 +136,26 @@ export async function savePushSubscription(userId, subscription) {
       console.error('Error updating push subscription:', error);
       throw error;
     }
+    console.log('Subscription updated successfully');
   } else {
+    console.log('Inserting new subscription');
     // Insert new subscription
-    const { error } = await supabase
+    const { error, data } = await supabase
       .from('he_push_subscriptions')
-      .insert([subscriptionData]);
+      .insert([subscriptionData])
+      .select();
 
     if (error) {
       console.error('Error saving push subscription:', error);
+      console.error('Error details:', {
+        code: error.code,
+        message: error.message,
+        details: error.details,
+        hint: error.hint,
+      });
       throw error;
     }
+    console.log('Subscription saved successfully:', data);
   }
 }
 
@@ -163,6 +191,8 @@ export async function hasPushSubscription(userId) {
  * @returns {Promise<boolean>} true if successful, false otherwise
  */
 export async function initializePushNotifications(userId, vapidPublicKey) {
+  console.log('Initializing push notifications for user:', userId);
+  
   if (!isNotificationSupported()) {
     console.warn('Push notifications are not supported in this browser');
     throw new Error('Push notifications are not supported in this browser');
@@ -170,27 +200,41 @@ export async function initializePushNotifications(userId, vapidPublicKey) {
 
   try {
     // Request permission
+    console.log('Requesting notification permission...');
     const permission = await requestNotificationPermission();
+    console.log('Permission result:', permission);
+    
     if (permission !== 'granted') {
       console.log('Notification permission denied');
       throw new Error('Notification permission was denied. Please enable notifications in your browser settings.');
     }
 
     // Register service worker
+    console.log('Registering service worker...');
     const registration = await registerServiceWorker();
     console.log('Service Worker registered:', registration);
 
     // Subscribe to push
+    console.log('Subscribing to push notifications...');
     const subscription = await subscribeToPush(registration, vapidPublicKey);
-    console.log('Push subscription created:', subscription);
+    console.log('Push subscription created:', {
+      endpoint: subscription.endpoint?.substring(0, 50) + '...',
+      expirationTime: subscription.expirationTime,
+    });
 
     // Save subscription to database
+    console.log('Saving subscription to database...');
     await savePushSubscription(userId, subscription);
-    console.log('Push subscription saved to database');
+    console.log('Push subscription saved to database successfully');
 
     return true;
   } catch (error) {
     console.error('Failed to initialize push notifications:', error);
+    console.error('Error details:', {
+      message: error.message,
+      stack: error.stack,
+      name: error.name,
+    });
     throw error;
   }
 }
@@ -211,6 +255,64 @@ function urlBase64ToUint8Array(base64String) {
     outputArray[i] = rawData.charCodeAt(i);
   }
   return outputArray;
+}
+
+/**
+ * Reset push notification subscription for a user
+ * This will unsubscribe and delete the subscription from the database
+ * @param {string} userId
+ * @returns {Promise<void>}
+ */
+export async function resetPushSubscription(userId) {
+  console.log('Resetting push subscription for user:', userId);
+  
+  try {
+    // Get current subscription from database
+    const { data: existing, error: fetchError } = await supabase
+      .from('he_push_subscriptions')
+      .select('subscription')
+      .eq('user_id', userId)
+      .maybeSingle();
+
+    if (fetchError && fetchError.code !== 'PGRST116') {
+      console.error('Error fetching subscription:', fetchError);
+      throw fetchError;
+    }
+
+    // If subscription exists, try to unsubscribe
+    if (existing && existing.subscription) {
+      try {
+        const registration = await navigator.serviceWorker.ready;
+        const subscription = await registration.pushManager.getSubscription();
+        
+        if (subscription) {
+          const success = await subscription.unsubscribe();
+          console.log('Unsubscribed from push:', success);
+        }
+      } catch (unsubError) {
+        console.warn('Could not unsubscribe (may already be unsubscribed):', unsubError);
+      }
+    }
+
+    // Delete subscription from database
+    const { error: deleteError } = await supabase
+      .from('he_push_subscriptions')
+      .delete()
+      .eq('user_id', userId);
+
+    if (deleteError) {
+      console.error('Error deleting subscription:', deleteError);
+      throw deleteError;
+    }
+
+    console.log('Subscription reset successfully');
+    
+    // Clear localStorage flag
+    localStorage.removeItem('he_notification_permission_asked');
+  } catch (error) {
+    console.error('Failed to reset push subscription:', error);
+    throw error;
+  }
 }
 
 /**

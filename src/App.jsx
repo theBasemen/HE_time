@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Plus, Trash2, X, ChevronRight, ChevronLeft, History, Calendar, Clock, CheckCircle2, RefreshCw, Bell, BellOff } from 'lucide-react';
 import { supabase } from './lib/supabase';
-import { initializePushNotifications, getVapidPublicKey, isNotificationSupported, hasPushSubscription } from './lib/notifications';
+import { initializePushNotifications, getVapidPublicKey, isNotificationSupported, hasPushSubscription, resetPushSubscription } from './lib/notifications';
 
 export default function TimeTracker() {
   // --- STATE ---
@@ -283,6 +283,24 @@ export default function TimeTracker() {
     if (!currentUser || !currentUser.id) {
       alert('Fejl: Ingen bruger valgt');
       return;
+    }
+
+    // If notifications are already enabled, offer to reset
+    if (notificationPermissionAsked && hasSubscription) {
+      if (confirm('Notifikationer er allerede aktiveret. Vil du nulstille og aktivere igen? Dette vil slette din nuværende subscription og spørge om tilladelse igen.')) {
+        try {
+          await resetPushSubscription(currentUser.id);
+          setNotificationPermissionAsked(false);
+          setHasSubscription(false);
+          // Now proceed to enable again
+        } catch (error) {
+          console.error('Failed to reset subscription:', error);
+          alert(`Fejl ved nulstilling: ${error.message}`);
+          return;
+        }
+      } else {
+        return;
+      }
     }
 
     setIsEnablingNotifications(true);
@@ -766,12 +784,12 @@ export default function TimeTracker() {
               {(isNotificationSupported() || /iPhone|iPad|iPod/.test(navigator.userAgent)) && (
                 <button
                   onClick={handleEnableNotifications}
-                  disabled={isEnablingNotifications || notificationPermissionAsked}
+                  disabled={isEnablingNotifications}
                   className="p-2 active:opacity-70 transition-colors disabled:opacity-50"
-                  style={{ color: notificationPermissionAsked ? '#10b981' : '#d0335a' }}
-                  title={notificationPermissionAsked ? 'Notifikationer er aktiveret' : 'Aktiver push-notifikationer'}
+                  style={{ color: notificationPermissionAsked && hasSubscription ? '#10b981' : '#d0335a' }}
+                  title={notificationPermissionAsked && hasSubscription ? 'Notifikationer er aktiveret (klik for at nulstille)' : 'Aktiver push-notifikationer'}
                 >
-                  {notificationPermissionAsked ? (
+                  {notificationPermissionAsked && hasSubscription ? (
                     <Bell size={20} />
                   ) : (
                     <BellOff size={20} />
