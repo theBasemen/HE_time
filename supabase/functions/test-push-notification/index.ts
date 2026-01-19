@@ -3,7 +3,7 @@
 
 import { serve } from 'https://deno.land/std@0.168.0/http/server.ts';
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
-import { ApplicationServer } from 'jsr:@negrel/webpush@0.5.0';
+import * as webpush from 'jsr:@negrel/webpush@0.5.0';
 
 // Send push notification using @negrel/webpush (Deno-compatible)
 async function sendPushNotification(
@@ -50,14 +50,21 @@ async function sendPushNotification(
     });
     
     // Create ApplicationServer instance with VAPID keys
-    const appServer = new ApplicationServer({
-      subject: vapidSubject,
-      publicKey: vapidPublicKey,
-      privateKey: vapidPrivateKey,
+    const appServer = await webpush.ApplicationServer.new({
+      vapidKeys: {
+        publicKey: vapidPublicKey,
+        privateKey: vapidPrivateKey,
+      },
+      contactInformation: vapidSubject,
     });
     
-    // Send notification using ApplicationServer.send()
-    await appServer.send(subscriptionObj, payload);
+    // Subscribe to get PushSubscriber
+    const subscriber = appServer.subscribe(subscriptionObj);
+    
+    // Send notification using pushTextMessage or pushMessage
+    await subscriber.pushMessage(payload, {
+      ttl: 86400, // 24 hours
+    });
     
     return true;
   } catch (error) {
