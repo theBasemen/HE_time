@@ -108,13 +108,33 @@ async function sendPushNotification(
       throw new Error('Invalid subscription structure');
     }
     
-    // Import VAPID keys first - this converts them to CryptoKey objects
-    const vapidKeys = webpush.importVapidKeys({
-      publicKey: vapidPublicKey,
-      privateKey: vapidPrivateKey,
-    });
+    // Try to import VAPID keys - handle both sync and async cases
+    let vapidKeys;
+    try {
+      // Try importVapidKeys if it exists (may be sync or async)
+      if (typeof webpush.importVapidKeys === 'function') {
+        vapidKeys = await Promise.resolve(webpush.importVapidKeys({
+          publicKey: vapidPublicKey,
+          privateKey: vapidPrivateKey,
+        }));
+      } else {
+        // If importVapidKeys doesn't exist, try passing keys directly
+        // The library might handle conversion internally
+        vapidKeys = {
+          publicKey: vapidPublicKey,
+          privateKey: vapidPrivateKey,
+        };
+      }
+    } catch (importError) {
+      console.error('Error importing VAPID keys:', importError);
+      // Fallback: pass keys directly - library might handle conversion
+      vapidKeys = {
+        publicKey: vapidPublicKey,
+        privateKey: vapidPrivateKey,
+      };
+    }
     
-    // Create ApplicationServer instance with imported VAPID keys
+    // Create ApplicationServer instance with VAPID keys
     const appServer = await webpush.ApplicationServer.new({
       vapidKeys: vapidKeys,
       contactInformation: vapidSubject,

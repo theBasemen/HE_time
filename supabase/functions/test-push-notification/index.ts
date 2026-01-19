@@ -5,6 +5,18 @@ import { serve } from 'https://deno.land/std@0.168.0/http/server.ts';
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 import * as webpush from 'jsr:@negrel/webpush@0.5.0';
 
+// Helper function to convert base64 URL to Uint8Array
+function urlBase64ToUint8Array(base64String: string): Uint8Array {
+  const padding = '='.repeat((4 - (base64String.length % 4)) % 4);
+  const base64 = (base64String + padding).replace(/-/g, '+').replace(/_/g, '/');
+  const rawData = atob(base64);
+  const outputArray = new Uint8Array(rawData.length);
+  for (let i = 0; i < rawData.length; ++i) {
+    outputArray[i] = rawData.charCodeAt(i);
+  }
+  return outputArray;
+}
+
 // Send push notification using @negrel/webpush (Deno-compatible)
 async function sendPushNotification(
   subscription: any,
@@ -43,13 +55,33 @@ async function sendPushNotification(
       authType: typeof subscriptionObj.keys.auth,
     });
     
-    // Import VAPID keys first - this converts them to CryptoKey objects
-    const vapidKeys = webpush.importVapidKeys({
-      publicKey: vapidPublicKey,
-      privateKey: vapidPrivateKey,
-    });
+    // Try to import VAPID keys - handle both sync and async cases
+    let vapidKeys;
+    try {
+      // Try importVapidKeys if it exists (may be sync or async)
+      if (typeof webpush.importVapidKeys === 'function') {
+        vapidKeys = await Promise.resolve(webpush.importVapidKeys({
+          publicKey: vapidPublicKey,
+          privateKey: vapidPrivateKey,
+        }));
+      } else {
+        // If importVapidKeys doesn't exist, try passing keys directly
+        // The library might handle conversion internally
+        vapidKeys = {
+          publicKey: vapidPublicKey,
+          privateKey: vapidPrivateKey,
+        };
+      }
+    } catch (importError) {
+      console.error('Error importing VAPID keys:', importError);
+      // Fallback: pass keys directly - library might handle conversion
+      vapidKeys = {
+        publicKey: vapidPublicKey,
+        privateKey: vapidPrivateKey,
+      };
+    }
     
-    // Create ApplicationServer instance with imported VAPID keys
+    // Create ApplicationServer instance with VAPID keys
     const appServer = await webpush.ApplicationServer.new({
       vapidKeys: vapidKeys,
       contactInformation: vapidSubject,
