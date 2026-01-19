@@ -121,22 +121,71 @@ SELECT cron.schedule(
 - `YOUR_PROJECT_REF` with your Supabase project reference
 - `YOUR_SERVICE_ROLE_KEY` with your service role key (found in Project Settings → API)
 
-### Option B: Using External Cron Service
+### Option B: Using External Cron Service (RECOMMENDED)
 
-You can use an external cron service like:
-- cron-job.org
-- EasyCron
-- GitHub Actions (with scheduled workflows)
+Since `pg_net` extension may not be available in all Supabase projects, using an external cron service is the most reliable option.
 
-Set it to call:
+#### Using cron-job.org (Free):
+
+1. Go to https://cron-job.org and create a free account
+2. Click "Create cronjob"
+3. Fill in:
+   - **Title**: `Send Daily Reminders`
+   - **Address**: `https://uoniqnjqbugaqtbyinvf.supabase.co/functions/v1/send-daily-reminders`
+   - **Request method**: `POST`
+   - **Request headers**: 
+     ```
+     Authorization: Bearer YOUR_SERVICE_ROLE_KEY
+     Content-Type: application/json
+     ```
+   - **Request body**: `{}`
+   - **Schedule**: 
+     - **Execution**: `Daily`
+     - **Time**: `17:00` (CET/CEST)
+     - **Days**: `Monday, Tuesday, Wednesday, Thursday, Friday`
+4. Click "Create cronjob"
+
+#### Using GitHub Actions (Free for public repos):
+
+Create `.github/workflows/daily-reminders.yml`:
+
+```yaml
+name: Send Daily Reminders
+
+on:
+  schedule:
+    # Runs every weekday at 16:00 UTC (17:00 CET)
+    - cron: '0 16 * * 1-5'
+  workflow_dispatch: # Allows manual trigger
+
+jobs:
+  send-reminders:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Call Edge Function
+        run: |
+          curl -X POST \
+            'https://uoniqnjqbugaqtbyinvf.supabase.co/functions/v1/send-daily-reminders' \
+            -H 'Authorization: Bearer ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}' \
+            -H 'Content-Type: application/json' \
+            -d '{}'
 ```
-POST https://YOUR_PROJECT_REF.supabase.co/functions/v1/send-daily-reminders
-Headers:
-  Authorization: Bearer YOUR_SERVICE_ROLE_KEY
-  Content-Type: application/json
-```
 
-Schedule: Daily at 17:00 CET (adjust UTC time accordingly)
+Add `SUPABASE_SERVICE_ROLE_KEY` to GitHub Secrets (Settings → Secrets → Actions)
+
+#### Using EasyCron:
+
+1. Go to https://www.easycron.com and create an account
+2. Create a new cron job with:
+   - **URL**: `https://uoniqnjqbugaqtbyinvf.supabase.co/functions/v1/send-daily-reminders`
+   - **Method**: `POST`
+   - **Headers**: 
+     ```
+     Authorization: Bearer YOUR_SERVICE_ROLE_KEY
+     Content-Type: application/json
+     ```
+   - **Body**: `{}`
+   - **Schedule**: `0 16 * * 1-5` (Monday-Friday at 16:00 UTC)
 
 ## 7. Verify Cron Job Setup
 
