@@ -3,7 +3,7 @@
 
 import { serve } from 'https://deno.land/std@0.168.0/http/server.ts';
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
-import * as webpush from 'jsr:@negrel/webpush@0.5.0';
+import { ApplicationServer } from 'jsr:@negrel/webpush@0.5.0';
 
 // Danish holidays (fixed dates)
 const DANISH_HOLIDAYS: Array<{ month: number; day: number; name: string }> = [
@@ -116,15 +116,15 @@ async function sendPushNotification(
       tag: 'time-reminder',
     });
     
-    // Send notification using @negrel/webpush
-    await webpush.sendNotification(subscriptionObj, {
-      payload: payload,
-      vapidDetails: {
-        subject: vapidSubject,
-        publicKey: vapidPublicKey,
-        privateKey: vapidPrivateKey,
-      },
+    // Create ApplicationServer instance with VAPID keys
+    const appServer = new ApplicationServer({
+      subject: vapidSubject,
+      publicKey: vapidPublicKey,
+      privateKey: vapidPrivateKey,
     });
+    
+    // Send notification using ApplicationServer.send()
+    await appServer.send(subscriptionObj, payload);
     
     return true;
   } catch (error) {
