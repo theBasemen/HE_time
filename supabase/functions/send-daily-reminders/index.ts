@@ -108,12 +108,15 @@ async function sendPushNotification(
       throw new Error('Invalid subscription structure');
     }
     
-    // Create ApplicationServer instance with VAPID keys
+    // Import VAPID keys first - this converts them to CryptoKey objects
+    const vapidKeys = webpush.importVapidKeys({
+      publicKey: vapidPublicKey,
+      privateKey: vapidPrivateKey,
+    });
+    
+    // Create ApplicationServer instance with imported VAPID keys
     const appServer = await webpush.ApplicationServer.new({
-      vapidKeys: {
-        publicKey: vapidPublicKey,
-        privateKey: vapidPrivateKey,
-      },
+      vapidKeys: vapidKeys,
       contactInformation: vapidSubject,
     });
     
