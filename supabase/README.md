@@ -137,7 +137,98 @@ Headers:
 
 Schedule: Daily at 17:00 CET (adjust UTC time accordingly)
 
-## 7. Test the Setup
+## 7. Verify Cron Job Setup
+
+### Check if pg_cron Extension is Enabled
+
+Run this SQL in Supabase SQL Editor:
+
+```sql
+-- Check if pg_cron extension exists
+SELECT * FROM pg_extension WHERE extname = 'pg_cron';
+```
+
+If it returns a row, the extension is enabled. If not, enable it:
+
+```sql
+CREATE EXTENSION IF NOT EXISTS pg_cron;
+```
+
+### Check if Cron Job is Scheduled
+
+Run this SQL to see all scheduled cron jobs:
+
+```sql
+-- List all scheduled cron jobs
+SELECT * FROM cron.job;
+```
+
+You should see a job named `send-daily-reminders` with a schedule like `0 16 * * 1-5`.
+
+### Check Cron Job Details
+
+To see detailed information about your specific job:
+
+```sql
+-- Get details about the send-daily-reminders job
+SELECT 
+  jobid,
+  schedule,
+  command,
+  nodename,
+  nodeport,
+  database,
+  username,
+  active
+FROM cron.job
+WHERE jobname = 'send-daily-reminders';
+```
+
+### Check Cron Job Execution History
+
+To see if the cron job has been running:
+
+```sql
+-- View recent cron job executions
+SELECT 
+  jobid,
+  runid,
+  job_pid,
+  database,
+  username,
+  command,
+  status,
+  return_message,
+  start_time,
+  end_time
+FROM cron.job_run_details
+WHERE jobid = (
+  SELECT jobid FROM cron.job WHERE jobname = 'send-daily-reminders'
+)
+ORDER BY start_time DESC
+LIMIT 10;
+```
+
+**What to look for:**
+- `status` should be `succeeded` for successful runs
+- `return_message` should show the HTTP response
+- `start_time` should show when it last ran
+- If `status` is `failed`, check `return_message` for error details
+
+### Verify Cron Job Schedule
+
+The cron schedule `0 16 * * 1-5` means:
+- `0` - minute 0 (top of the hour)
+- `16` - hour 16 (4 PM UTC)
+- `*` - every day of month
+- `*` - every month
+- `1-5` - Monday through Friday
+
+**Note:** 16:00 UTC = 17:00 CET (winter) / 18:00 CEST (summer)
+
+To adjust for summer time (CEST), use `0 15 * * 1-5` (15:00 UTC = 17:00 CEST).
+
+## 8. Test the Setup
 
 ### Test Edge Function Manually
 
@@ -155,7 +246,7 @@ curl -X POST \
 1. Open the app in a browser
 2. Log in as a user
 3. Grant notification permission when prompted
-4. Register less than 6 hours for today
+4. Make sure you have registered 0 hours for today (or delete all logs for today)
 5. Manually trigger the Edge Function (or wait until 17:00)
 6. You should receive a push notification
 
