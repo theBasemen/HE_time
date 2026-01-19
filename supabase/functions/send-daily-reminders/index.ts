@@ -461,12 +461,12 @@ serve(async (req) => {
           userId: user.id,
           userName: user.name,
           totalHours,
-          needsReminder: totalHours < 6,
+          needsReminder: totalHours === 0,
           logsCount: logs?.length || 0,
         });
         
-        // Only send notification if user has registered less than 6 hours
-        if (totalHours < 6) {
+        // Only send notification if user has not registered any time today (0 hours)
+        if (totalHours === 0) {
           // Get user's push subscriptions
           const { data: subscriptions, error: subsError } = await supabase
             .from('he_push_subscriptions')
@@ -487,13 +487,10 @@ serve(async (req) => {
             continue;
           }
           
-          // Format hours for display
-          const hoursDisplay = totalHours.toFixed(1).replace('.', ',');
-          
           // Send notification to all user's devices
           const notificationPayload = {
             title: 'Husk at registrere timer',
-            body: `Du har kun registreret ${hoursDisplay} timer i dag. Husk at få det hele med i runde tal. Firmarelevante møder og telefonsamtaler registreres som Administration`,
+            body: 'Husk at registrere din arbejdstid - runde tal er helt fint',
           };
           
           for (const sub of subscriptions) {
