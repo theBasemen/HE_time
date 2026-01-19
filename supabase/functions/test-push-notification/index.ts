@@ -26,7 +26,7 @@ async function sendPushNotification(
       return false;
     }
     
-    // Create subscription object
+    // Create subscription object - ensure keys are properly formatted
     const subscriptionObj = {
       endpoint: String(subscription.endpoint),
       keys: {
@@ -35,18 +35,21 @@ async function sendPushNotification(
       },
     };
     
-    const payload = JSON.stringify({
+    // Create notification payload object
+    const notificationPayload = {
       title,
       body,
       icon: '/he_logo.png',
       badge: '/he_logo.png',
       tag: 'test-notification',
-    });
+    };
     
     console.log('Sending notification with subscription:', {
       endpoint: subscriptionObj.endpoint.substring(0, 50) + '...',
       hasP256dh: !!subscriptionObj.keys.p256dh,
       hasAuth: !!subscriptionObj.keys.auth,
+      p256dhLength: subscriptionObj.keys.p256dh?.length,
+      authLength: subscriptionObj.keys.auth?.length,
     });
     
     // Create ApplicationServer instance with VAPID keys
@@ -61,8 +64,10 @@ async function sendPushNotification(
     // Subscribe to get PushSubscriber
     const subscriber = appServer.subscribe(subscriptionObj);
     
-    // Send notification using pushTextMessage or pushMessage
-    await subscriber.pushMessage(payload, {
+    // Send notification using pushMessage with JSON payload
+    // Convert payload to JSON string
+    const payloadString = JSON.stringify(notificationPayload);
+    await subscriber.pushMessage(payloadString, {
       ttl: 86400, // 24 hours
     });
     
