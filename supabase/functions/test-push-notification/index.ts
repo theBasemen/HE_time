@@ -16,7 +16,7 @@ function urlBase64ToUint8Array(base64String: string): Uint8Array {
   return outputArray;
 }
 
-// Send push notification using Web Push API directly (without web-push library)
+// Send push notification using Deno-compatible webpush library
 async function sendPushNotification(
   subscription: any,
   title: string,
@@ -37,52 +37,18 @@ async function sendPushNotification(
       return false;
     }
     
-    // Use web-push library - try different import methods
-    let webPush: any;
+    // Use negrel/webpush - Deno-compatible web push library
+    // This library uses Web Crypto API instead of Node's crypto.ECDH
+    const { WebPush } = await import('https://deno.land/x/webpush@1.0.0/mod.ts');
     
-    try {
-      // Try standard import first
-      const webPushModule = await import('https://esm.sh/web-push@3.6.6');
-      webPush = webPushModule.default || webPushModule;
-      
-      // If still not working, try accessing sendNotification directly
-      if (!webPush || typeof webPush.sendNotification !== 'function') {
-        // Try alternative access patterns
-        if (webPushModule.sendNotification) {
-          webPush = webPushModule;
-        } else if (webPushModule.default?.sendNotification) {
-          webPush = webPushModule.default;
-        }
-      }
-    } catch (e1) {
-      console.error('First import attempt failed:', e1);
-      try {
-        // Try with Deno target
-        const webPushModule2 = await import('https://esm.sh/web-push@3.6.6?target=deno');
-        webPush = webPushModule2.default || webPushModule2;
-      } catch (e2) {
-        console.error('Failed to import web-push:', e1, e2);
-        throw new Error('Could not load web-push library');
-      }
-    }
-    
-    if (!webPush || typeof webPush.sendNotification !== 'function') {
-      console.error('web-push module not loaded correctly', {
-        hasWebPush: !!webPush,
-        hasSendNotification: !!webPush?.sendNotification,
-        type: typeof webPush,
-        keys: webPush ? Object.keys(webPush) : [],
-      });
-      return false;
-    }
-    
-    // Create a completely fresh plain object to avoid prototype issues
-    // Use Object.create(null) to create object without prototype
-    const subscriptionObj: any = Object.create(null);
-    subscriptionObj.endpoint = String(subscription.endpoint);
-    subscriptionObj.keys = Object.create(null);
-    subscriptionObj.keys.p256dh = String(subscription.keys.p256dh);
-    subscriptionObj.keys.auth = String(subscription.keys.auth);
+    // Create subscription object
+    const subscriptionObj = {
+      endpoint: subscription.endpoint,
+      keys: {
+        p256dh: subscription.keys.p256dh,
+        auth: subscription.keys.auth,
+      },
+    };
     
     const payload = JSON.stringify({
       title,
@@ -96,22 +62,19 @@ async function sendPushNotification(
       endpoint: subscriptionObj.endpoint.substring(0, 50) + '...',
       hasP256dh: !!subscriptionObj.keys.p256dh,
       hasAuth: !!subscriptionObj.keys.auth,
-      p256dhLength: subscriptionObj.keys.p256dh?.length,
-      authLength: subscriptionObj.keys.auth?.length,
+    });
+    
+    // Create WebPush instance with VAPID keys
+    const webpush = new WebPush({
+      vapid: {
+        subject: vapidSubject,
+        publicKey: vapidPublicKey,
+        privateKey: vapidPrivateKey,
+      },
     });
     
     // Send notification
-    await webPush.sendNotification(
-      subscriptionObj,
-      payload,
-      {
-        vapidDetails: {
-          subject: vapidSubject,
-          publicKey: vapidPublicKey,
-          privateKey: vapidPrivateKey,
-        },
-      }
-    );
+    await webpush.send(subscriptionObj, payload);
     
     return true;
   } catch (error) {

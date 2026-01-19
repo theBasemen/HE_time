@@ -77,7 +77,7 @@ function isWorkday(date: Date): boolean {
   return !isHoliday;
 }
 
-// Send push notification using Web Push API
+// Send push notification using Deno-compatible webpush library
 async function sendPushNotification(
   subscription: any,
   title: string,
@@ -87,52 +87,29 @@ async function sendPushNotification(
   vapidSubject: string
 ): Promise<boolean> {
   try {
-    // Use web-push library via esm.sh
-    // Try different import methods for Deno compatibility
-    let webPush;
-    try {
-      const webPushModule = await import('https://esm.sh/web-push@3.6.6');
-      webPush = webPushModule.default || webPushModule;
-    } catch (importError) {
-      console.error('Failed to import web-push:', importError);
-      // Try alternative import
-      const webPushModule2 = await import('https://esm.sh/web-push@3.6.6?target=deno');
-      webPush = webPushModule2.default || webPushModule2;
-    }
-    
-    if (!webPush || typeof webPush.sendNotification !== 'function') {
-      console.error('web-push module not loaded correctly', {
-        hasDefault: !!webPushModule.default,
-        hasSendNotification: !!webPush?.sendNotification,
-        moduleKeys: Object.keys(webPushModule),
-      });
-      return false;
-    }
-    
     // Validate subscription object
     if (!subscription || !subscription.endpoint) {
       console.error('Invalid subscription object:', subscription);
       return false;
     }
     
-    // Ensure subscription is a plain object (not a class instance)
-    // This fixes the "Object prototype may only be an Object or null" error
-    const subscriptionPlain = {
-      endpoint: String(subscription.endpoint),
-      keys: {
-        p256dh: String(subscription.keys?.p256dh || subscription.keys?.p256dh || ''),
-        auth: String(subscription.keys?.auth || subscription.keys?.auth || ''),
-      },
-    };
-    
-    // Validate keys exist
-    if (!subscriptionPlain.keys.p256dh || !subscriptionPlain.keys.auth) {
-      console.error('Missing subscription keys:', {
-        hasP256dh: !!subscriptionPlain.keys.p256dh,
-        hasAuth: !!subscriptionPlain.keys.auth,
-      });
+    if (!subscription.keys || !subscription.keys.p256dh || !subscription.keys.auth) {
+      console.error('Missing subscription keys');
       return false;
     }
+    
+    // Use negrel/webpush - Deno-compatible web push library
+    // This library uses Web Crypto API instead of Node's crypto.ECDH
+    const { WebPush } = await import('https://deno.land/x/webpush@1.0.0/mod.ts');
+    
+    // Create subscription object
+    const subscriptionObj = {
+      endpoint: subscription.endpoint,
+      keys: {
+        p256dh: subscription.keys.p256dh,
+        auth: subscription.keys.auth,
+      },
+    };
     
     const payload = JSON.stringify({
       title,
@@ -142,18 +119,17 @@ async function sendPushNotification(
       tag: 'time-reminder',
     });
     
+    // Create WebPush instance with VAPID keys
+    const webpush = new WebPush({
+      vapid: {
+        subject: vapidSubject,
+        publicKey: vapidPublicKey,
+        privateKey: vapidPrivateKey,
+      },
+    });
+    
     // Send notification
-    await webPush.sendNotification(
-      subscriptionPlain,
-      payload,
-      {
-        vapidDetails: {
-          subject: vapidSubject,
-          publicKey: vapidPublicKey,
-          privateKey: vapidPrivateKey,
-        },
-      }
-    );
+    await webpush.send(subscriptionObj, payload);
     
     return true;
   } catch (error) {
