@@ -6,7 +6,7 @@
 
 import { schedule } from '@netlify/functions';
 
-const handler = async (event, context) => {
+const sendReminders = async (event, context) => {
   const supabaseUrl = process.env.SUPABASE_URL || '';
   const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY || '';
   
@@ -66,4 +66,4 @@ const handler = async (event, context) => {
 
 // Schedule: Monday-Friday at 16:00 UTC (17:00 CET / 18:00 CEST)
 // Cron format: minute hour day-of-month month day-of-week
-export const handler = schedule('0 16 * * 1-5', handler);
+export const handler = schedule('0 16 * * 1-5', sendReminders);
