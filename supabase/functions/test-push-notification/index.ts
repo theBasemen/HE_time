@@ -26,30 +26,21 @@ async function sendPushNotification(
       return false;
     }
     
-    // Create subscription object - ensure keys are properly formatted
-    const subscriptionObj = {
-      endpoint: String(subscription.endpoint),
-      keys: {
-        p256dh: String(subscription.keys.p256dh),
-        auth: String(subscription.keys.auth),
-      },
-    };
+    // Use subscription object directly - library should handle format conversion
+    // Ensure it's a plain object (not a class instance)
+    const subscriptionObj = subscription;
     
-    // Create notification payload object
-    const notificationPayload = {
-      title,
-      body,
-      icon: '/he_logo.png',
-      badge: '/he_logo.png',
-      tag: 'test-notification',
-    };
+    // Validate subscription structure
+    if (!subscriptionObj.endpoint || !subscriptionObj.keys) {
+      throw new Error('Invalid subscription structure');
+    }
     
     console.log('Sending notification with subscription:', {
       endpoint: subscriptionObj.endpoint.substring(0, 50) + '...',
       hasP256dh: !!subscriptionObj.keys.p256dh,
       hasAuth: !!subscriptionObj.keys.auth,
-      p256dhLength: subscriptionObj.keys.p256dh?.length,
-      authLength: subscriptionObj.keys.auth?.length,
+      p256dhType: typeof subscriptionObj.keys.p256dh,
+      authType: typeof subscriptionObj.keys.auth,
     });
     
     // Create ApplicationServer instance with VAPID keys
@@ -61,24 +52,14 @@ async function sendPushNotification(
       contactInformation: vapidSubject,
     });
     
-    // Subscribe to get PushSubscriber
+    // Subscribe to get PushSubscriber - pass subscription directly
     const subscriber = appServer.subscribe(subscriptionObj);
     
-    // Try using pushTextMessage first (simpler, may avoid offset errors)
-    // If that doesn't work, fall back to pushMessage with JSON
-    try {
-      // Use pushTextMessage with just the body text
-      await subscriber.pushTextMessage(body, {
-        ttl: 86400, // 24 hours
-      });
-    } catch (textError) {
-      // If pushTextMessage fails, try pushMessage with JSON payload
-      console.log('pushTextMessage failed, trying pushMessage with JSON:', textError.message);
-      const payloadString = JSON.stringify(notificationPayload);
-      await subscriber.pushMessage(payloadString, {
-        ttl: 86400, // 24 hours
-      });
-    }
+    // Use pushTextMessage with just the body text (simplest approach)
+    // This avoids complex JSON payload that might cause offset errors
+    await subscriber.pushTextMessage(body, {
+      ttl: 86400, // 24 hours
+    });
     
     return true;
   } catch (error) {
