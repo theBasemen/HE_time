@@ -4,19 +4,7 @@
 import { serve } from 'https://deno.land/std@0.168.0/http/server.ts';
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 
-// Helper function to convert base64 URL to Uint8Array
-function urlBase64ToUint8Array(base64String: string): Uint8Array {
-  const padding = '='.repeat((4 - (base64String.length % 4)) % 4);
-  const base64 = (base64String + padding).replace(/-/g, '+').replace(/_/g, '/');
-  const rawData = atob(base64);
-  const outputArray = new Uint8Array(rawData.length);
-  for (let i = 0; i < rawData.length; ++i) {
-    outputArray[i] = rawData.charCodeAt(i);
-  }
-  return outputArray;
-}
-
-// Send push notification using Deno-compatible webpush library
+// Send push notification using web-push library
 async function sendPushNotification(
   subscription: any,
   title: string,
@@ -37,16 +25,51 @@ async function sendPushNotification(
       return false;
     }
     
-    // Use negrel/webpush - Deno-compatible web push library
-    // This library uses Web Crypto API instead of Node's crypto.ECDH
-    const { WebPush } = await import('https://deno.land/x/webpush@1.0.0/mod.ts');
+    // Try importing web-push with Deno target
+    // Use dynamic import to handle potential errors
+    let webPush: any;
     
-    // Create subscription object
+    try {
+      // Try esm.sh with deno target
+      const webPushModule = await import('https://esm.sh/web-push@3.6.6?target=deno&no-check');
+      webPush = webPushModule.default || webPushModule;
+      
+      // If default doesn't have sendNotification, try accessing it directly
+      if (!webPush || typeof webPush.sendNotification !== 'function') {
+        if (webPushModule.sendNotification) {
+          webPush = webPushModule;
+        } else if (webPushModule.default && typeof webPushModule.default.sendNotification === 'function') {
+          webPush = webPushModule.default;
+        }
+      }
+    } catch (importError) {
+      console.error('Failed to import web-push:', importError);
+      // Fallback: try standard import
+      try {
+        const webPushModule2 = await import('https://esm.sh/web-push@3.6.6?no-check');
+        webPush = webPushModule2.default || webPushModule2;
+      } catch (importError2) {
+        console.error('All import attempts failed:', importError, importError2);
+        throw new Error(`Could not load web-push library: ${importError.message}`);
+      }
+    }
+    
+    if (!webPush || typeof webPush.sendNotification !== 'function') {
+      console.error('web-push module not loaded correctly', {
+        hasWebPush: !!webPush,
+        hasSendNotification: !!webPush?.sendNotification,
+        type: typeof webPush,
+        keys: webPush ? Object.keys(webPush) : [],
+      });
+      throw new Error('web-push.sendNotification is not a function');
+    }
+    
+    // Create subscription object - ensure it's a plain object
     const subscriptionObj = {
-      endpoint: subscription.endpoint,
+      endpoint: String(subscription.endpoint),
       keys: {
-        p256dh: subscription.keys.p256dh,
-        auth: subscription.keys.auth,
+        p256dh: String(subscription.keys.p256dh),
+        auth: String(subscription.keys.auth),
       },
     };
     
@@ -64,36 +87,40 @@ async function sendPushNotification(
       hasAuth: !!subscriptionObj.keys.auth,
     });
     
-    // Create WebPush instance with VAPID keys
-    const webpush = new WebPush({
-      vapid: {
-        subject: vapidSubject,
-        publicKey: vapidPublicKey,
-        privateKey: vapidPrivateKey,
-      },
-    });
-    
     // Send notification
-    await webpush.send(subscriptionObj, payload);
-    
-    return true;
+    // Wrap in try-catch to handle crypto.ECDH errors gracefully
+    try {
+      await webPush.sendNotification(
+        subscriptionObj,
+        payload,
+        {
+          vapidDetails: {
+            subject: vapidSubject,
+            publicKey: vapidPublicKey,
+            privateKey: vapidPrivateKey,
+          },
+        }
+      );
+      return true;
+    } catch (sendError) {
+      // If we get crypto.ECDH error, provide helpful message
+      if (sendError.message && sendError.message.includes('ECDH')) {
+        throw new Error('crypto.ECDH not supported in Deno runtime. Consider using a different approach or library.');
+      }
+      throw sendError;
+    }
   } catch (error) {
     console.error('Error sending push notification:', error);
     console.error('Error details:', {
       message: error.message,
       stack: error.stack,
       name: error.name,
-      subscriptionType: typeof subscription,
-      subscriptionKeys: subscription ? Object.keys(subscription) : 'null',
     });
     throw error;
   }
 }
 
 serve(async (req) => {
-  // Get origin from request for CORS
-  const origin = req.headers.get('origin') || req.headers.get('Origin') || '*';
-  
   // CORS headers to use in all responses
   const corsHeaders = {
     'Access-Control-Allow-Origin': '*',
@@ -230,7 +257,7 @@ serve(async (req) => {
     
     // Send test notification to all user's devices
     const title = 'Test Notifikation';
-    const body = `Hej ${user.name}! Dette er en test-notifikation fra Himmelstrup Time Tracker.`;
+    const notificationBody = `Hej ${user.name}! Dette er en test-notifikation fra Himmelstrup Time Tracker.`;
     
     let notificationsSent = 0;
     let notificationsFailed = 0;
@@ -269,7 +296,7 @@ serve(async (req) => {
         const success = await sendPushNotification(
           cleanSubscription,
           title,
-          body,
+          notificationBody,
           vapidPublicKey,
           vapidPrivateKey,
           vapidSubject
@@ -279,7 +306,7 @@ serve(async (req) => {
           notificationsSent++;
         } else {
           notificationsFailed++;
-          errors.push('sendNotification returned false');
+          errors.push('sendPushNotification returned false');
         }
       } catch (pushError) {
         notificationsFailed++;
@@ -316,12 +343,11 @@ serve(async (req) => {
       }),
       {
         status: 500,
-          headers: {
-            'Content-Type': 'application/json',
-            ...corsHeaders,
-          },
+        headers: {
+          'Content-Type': 'application/json',
+          ...corsHeaders,
+        },
       }
     );
   }
 });
-
