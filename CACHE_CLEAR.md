@@ -47,3 +47,4 @@ Efter cache-clear, tjek:
 2. Verificer at `VITE_VAPID_PUBLIC_KEY` er sat i Netlify environment variables
 3. Tjek om appen kører den nyeste version (se i Netlify deploy logs)
 
+

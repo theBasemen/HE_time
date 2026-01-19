@@ -139,3 +139,4 @@ Check the `errors` array in the response. Common errors:
 - [ ] Service worker is registered (check browser DevTools)
 - [ ] Edge Function logs show no errors
 
+

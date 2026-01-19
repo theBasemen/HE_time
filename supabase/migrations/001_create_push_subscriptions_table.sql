@@ -27,47 +27,35 @@ CREATE TRIGGER update_push_subscriptions_updated_at
 
 -- Add RLS (Row Level Security) policies
 -- Note: Edge Function uses service role key which bypasses RLS
--- The app uses anonymous key, so policies check if user_id exists in he_time_users
+-- These policies are for direct client access only
 
 ALTER TABLE he_push_subscriptions ENABLE ROW LEVEL SECURITY;
 
--- Allow insert if user_id exists in he_time_users and user is active
-CREATE POLICY "Allow insert for valid users"
+-- Allow authenticated users to insert their own subscriptions
+CREATE POLICY "Users can insert their own subscriptions"
   ON he_push_subscriptions
   FOR INSERT
   WITH CHECK (
-    EXISTS (
-      SELECT 1 FROM he_time_users
-      WHERE he_time_users.id = he_push_subscriptions.user_id
-      AND he_time_users.is_active = true
-    )
-    OR auth.role() = 'service_role'
+    auth.uid() = user_id OR
+    auth.role() = 'service_role'
   );
 
--- Allow update if user_id exists in he_time_users and user is active
-CREATE POLICY "Allow update for valid users"
+-- Allow authenticated users to update their own subscriptions
+CREATE POLICY "Users can update their own subscriptions"
   ON he_push_subscriptions
   FOR UPDATE
   USING (
-    EXISTS (
-      SELECT 1 FROM he_time_users
-      WHERE he_time_users.id = he_push_subscriptions.user_id
-      AND he_time_users.is_active = true
-    )
-    OR auth.role() = 'service_role'
+    auth.uid() = user_id OR
+    auth.role() = 'service_role'
   );
 
--- Allow select if user_id exists in he_time_users and user is active
-CREATE POLICY "Allow select for valid users"
+-- Allow authenticated users to view their own subscriptions
+CREATE POLICY "Users can view their own subscriptions"
   ON he_push_subscriptions
   FOR SELECT
   USING (
-    EXISTS (
-      SELECT 1 FROM he_time_users
-      WHERE he_time_users.id = he_push_subscriptions.user_id
-      AND he_time_users.is_active = true
-    )
-    OR auth.role() = 'service_role'
+    auth.uid() = user_id OR
+    auth.role() = 'service_role'
   );
 
 -- Allow service role to delete subscriptions (for cleanup)
