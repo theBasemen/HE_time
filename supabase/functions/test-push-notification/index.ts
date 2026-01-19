@@ -55,50 +55,15 @@ async function sendPushNotification(
       authType: typeof subscriptionObj.keys.auth,
     });
     
-    // Log available webpush exports for debugging
-    console.log('Available webpush exports:', Object.keys(webpush));
-    
-    // Try to import VAPID keys - handle both sync and async cases
-    let vapidKeys;
-    try {
-      // Try importVapidKeys if it exists (may be sync or async)
-      if (typeof webpush.importVapidKeys === 'function') {
-        console.log('Using importVapidKeys function');
-        vapidKeys = await Promise.resolve(webpush.importVapidKeys({
-          publicKey: vapidPublicKey,
-          privateKey: vapidPrivateKey,
-        }));
-        console.log('VAPID keys imported successfully');
-      } else {
-        console.log('importVapidKeys not found, passing keys directly');
-        // If importVapidKeys doesn't exist, try passing keys directly
-        // The library might handle conversion internally
-        vapidKeys = {
-          publicKey: vapidPublicKey,
-          privateKey: vapidPrivateKey,
-        };
-      }
-    } catch (importError) {
-      console.error('Error importing VAPID keys:', importError);
-      console.error('Import error details:', {
-        message: importError.message,
-        stack: importError.stack,
-        name: importError.name,
-      });
-      // Fallback: pass keys directly - library might handle conversion
-      vapidKeys = {
+    // Pass VAPID keys directly - ApplicationServer.new should handle conversion
+    // Based on documentation, it seems the library handles key conversion internally
+    const appServer = await webpush.ApplicationServer.new({
+      vapidKeys: {
         publicKey: vapidPublicKey,
         privateKey: vapidPrivateKey,
-      };
-    }
-    
-    // Create ApplicationServer instance with VAPID keys
-    console.log('Creating ApplicationServer with vapidKeys type:', typeof vapidKeys);
-    const appServer = await webpush.ApplicationServer.new({
-      vapidKeys: vapidKeys,
+      },
       contactInformation: vapidSubject,
     });
-    console.log('ApplicationServer created successfully');
     
     // Subscribe to get PushSubscriber - pass subscription directly
     const subscriber = appServer.subscribe(subscriptionObj);
