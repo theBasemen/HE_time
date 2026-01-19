@@ -94,8 +94,9 @@ Set up a cron job to run the Edge Function daily at 17:00 (CET/CEST):
 Run this SQL in Supabase SQL Editor:
 
 ```sql
--- Enable pg_cron extension if not already enabled
+-- Enable required extensions
 CREATE EXTENSION IF NOT EXISTS pg_cron;
+CREATE EXTENSION IF NOT EXISTS pg_net;
 
 -- Schedule the Edge Function to run daily at 17:00 CET (16:00 UTC in winter, 15:00 UTC in summer)
 -- Note: Adjust timezone as needed. This example uses 16:00 UTC (17:00 CET in winter)
@@ -104,7 +105,7 @@ SELECT cron.schedule(
   '0 16 * * 1-5', -- Every day Monday-Friday at 16:00 UTC (17:00 CET)
   $$
   SELECT
-    net.http_post(
+    pg_net.http_post(
       url := 'https://YOUR_PROJECT_REF.supabase.co/functions/v1/send-daily-reminders',
       headers := jsonb_build_object(
         'Content-Type', 'application/json',
