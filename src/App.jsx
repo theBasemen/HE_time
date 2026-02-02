@@ -15,6 +15,7 @@ export default function TimeTracker() {
   // Selection & Forms
   const [selectedProjectForTimer, setSelectedProjectForTimer] = useState(null);
   const [duration, setDuration] = useState(1.0);
+  const [freelanceDocumentation, setFreelanceDocumentation] = useState('');
   
   // UI States
   const [editingLog, setEditingLog] = useState(null);
@@ -90,6 +91,7 @@ export default function TimeTracker() {
       setBottomSheetStep('project');
       setSelectedProjectForTimer(null);
       setDuration(1.0);
+      setFreelanceDocumentation('');
     }, 200);
   };
   
@@ -342,6 +344,14 @@ export default function TimeTracker() {
       return;
     }
 
+    // Validate freelance documentation for freelancers
+    if (currentUser.type === 'freelance') {
+      if (!freelanceDocumentation || freelanceDocumentation.trim() === '') {
+        alert('Beskriv venligst hvad tiden er brugt til');
+        return;
+      }
+    }
+
     setIsSavingTime(true);
 
     // Use selectedDate for the date part (year, month, day) in UTC, but keep current time
@@ -364,7 +374,8 @@ export default function TimeTracker() {
       hours: duration,
       timestamp: timestamp.toISOString(),
       user_id: currentUser.id,
-      user_data: currentUser
+      user_data: currentUser,
+      ...(currentUser.type === 'freelance' && freelanceDocumentation ? { freelance_documentation: freelanceDocumentation.trim() } : {})
     };
     
     const tempId = 'temp-' + Date.now();
@@ -665,6 +676,19 @@ export default function TimeTracker() {
 
     const dateTotal = myLogsForDate.reduce((sum, log) => sum + (log.hours || 0), 0);
     
+    // Calculate monthly total for freelancers
+    const monthlyTotal = currentUser?.type === 'freelance' 
+      ? logs
+          .filter(l => {
+            const isMe = l.user_id === currentUser?.id;
+            const logDate = new Date(l.timestamp);
+            const logMatchesMonth = logDate.getUTCFullYear() === selectedDate.getUTCFullYear() &&
+                                   logDate.getUTCMonth() === selectedDate.getUTCMonth();
+            return isMe && logMatchesMonth && l.hours !== null;
+          })
+          .reduce((sum, log) => sum + (log.hours || 0), 0)
+      : 0;
+    
     // Check if selected date is today
     const isToday = () => {
       const today = new Date();
@@ -814,15 +838,22 @@ export default function TimeTracker() {
           {/* Total Hours */}
           {dateTotal > 0 && (
             <div className="mb-6 bg-white rounded-2xl p-6 shadow-sm flex-shrink-0">
-              <div className="flex items-center justify-between">
+              <div className="flex items-start justify-between">
                 <div>
                   <p className="text-xs text-slate-500 uppercase tracking-wider mb-1">Total for dagen</p>
                   <p className="text-6xl font-bold text-slate-900">{formatHoursToTime(dateTotal)}</p>
                 </div>
-                <div className="flex flex-col items-end">
-                  <p className="text-xs text-slate-500 uppercase tracking-wider mb-2">Arbejdsdag</p>
-                  {renderCircularProgress(Math.round((dateTotal / 7.5) * 100))}
-                </div>
+                {currentUser?.type === 'freelance' ? (
+                  <div className="flex flex-col items-end">
+                    <p className="text-xs text-slate-500 uppercase tracking-wider mb-1">Total for måneden</p>
+                    <p className="text-2xl font-bold text-slate-900">{formatHoursToTime(monthlyTotal)}</p>
+                  </div>
+                ) : (
+                  <div className="flex flex-col items-end">
+                    <p className="text-xs text-slate-500 uppercase tracking-wider mb-2">Arbejdsdag</p>
+                    {renderCircularProgress(Math.round((dateTotal / 7.5) * 100))}
+                  </div>
+                )}
               </div>
             </div>
           )}
@@ -1137,6 +1168,22 @@ export default function TimeTracker() {
                         </button>
                       ))}
                     </div>
+
+                    {/* Freelance Documentation Field */}
+                    {currentUser?.type === 'freelance' && (
+                      <div className="mb-6">
+                        <label className="block text-sm font-medium text-slate-700 mb-2">
+                          Beskriv hvad tiden er brugt til <span className="text-red-500">*</span>
+                        </label>
+                        <textarea
+                          value={freelanceDocumentation}
+                          onChange={(e) => setFreelanceDocumentation(e.target.value)}
+                          placeholder="Beskriv hvad tiden er brugt til..."
+                          rows={3}
+                          className="w-full px-4 py-3 bg-white border border-slate-200 rounded-xl text-slate-900 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-[#d0335a] focus:border-transparent resize-none"
+                        />
+                      </div>
+                    )}
 
                     {/* Save Button */}
                     <button 
