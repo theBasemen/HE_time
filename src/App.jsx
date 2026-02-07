@@ -221,6 +221,7 @@ export default function TimeTracker() {
     const { data: projectsData, error: projError } = await supabase
       .from('he_time_projects')
       .select('*')
+      .or('is_complete.is.null,is_complete.eq.false')
       .order('name');
     
     if (projectsData) setProjects(projectsData);
@@ -578,7 +579,7 @@ export default function TimeTracker() {
       .slice(0, 4);
     
     return sortedProjectIds
-      .map(id => projects.find(p => p.id === id && !p.is_hidden))
+      .map(id => projects.find(p => p.id === id && !p.is_hidden && !p.is_complete))
       .filter(Boolean);
   };
 
@@ -759,7 +760,7 @@ export default function TimeTracker() {
     };
 
     // Filter projects
-    const visibleProjects = projects.filter(p => !p.is_hidden);
+    const visibleProjects = projects.filter(p => !p.is_hidden && !p.is_complete);
 
     const recentlyUsedProjects = getRecentlyUsedProjects();
     const recentlyUsedIds = new Set(recentlyUsedProjects.map(p => p.id));
